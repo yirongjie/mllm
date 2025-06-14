@@ -105,7 +105,7 @@ public:
                 / std::sqrt(head_dim);
             // atten_weight = mask(atten_weight, k_cache.getCacheSeqLen());
             atten_weight = softmax(atten_weight, k_cache.getCacheSeqLen());
-            auto atten_output = Tensor::mm(atten_weight, value_states);
+            atten_output = Tensor::mm(atten_weight, value_states);
         }
 
         // attention output

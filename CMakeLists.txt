@@ -46,7 +46,7 @@ endif()
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
         # 默认使用 armv8.2-a+dotprod，除非用户自定义了 CMAKE_CXX_FLAGS
         if(NOT DEFINED CMAKE_CXX_FLAGS OR CMAKE_CXX_FLAGS STREQUAL "")
-            set(CMAKE_CXX_FLAGS "-march=armv8.6-a+dotprod+i8mm")
+            set(CMAKE_CXX_FLAGS "-march=armv8.2-a+fp16+fp16fml+dotprod+i8mm")
         endif()
     endif()
 else ()
@@ -213,6 +213,8 @@ if(QUANT)
             # QSI4 模块源文件
             ${KLEIDIAI_SOURCE_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod.c
             ${KLEIDIAI_SOURCE_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp1x8_qsi4c32p4x8_1x4x32_neon_dotprod_asm.S
+            ${KLEIDIAI_SOURCE_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm.c
+            ${KLEIDIAI_SOURCE_DIR}/kai/ukernels/matmul/matmul_clamp_f32_qai8dxp_qsi4c32p/kai_matmul_clamp_f32_qai8dxp4x8_qsi4c32p4x8_8x4x32_neon_i8mm_asm.S
             ${KLEIDIAI_SOURCE_DIR}/kai/ukernels/matmul/pack/kai_lhs_quant_pack_qai8dxp_f32.c
             ${KLEIDIAI_SOURCE_DIR}/kai/ukernels/matmul/pack/kai_rhs_pack_kxn_qsi4c32p_qsu4c32s1s0.c
 
@@ -238,10 +240,10 @@ if(QUANT)
     file(GLOB_RECURSE MLLM_QUANTIZER
         ${PROJECT_SOURCE_DIR}/src/quantizer/*.cpp
         ${PROJECT_SOURCE_DIR}/src/quantizer/*.hpp)
-    list(REMOVE_ITEM MLLM_QUANTIZER ${PROJECT_SOURCE_DIR}/src/quantizer/main.cpp)
+    list(REMOVE_ITEM MLLM_QUANTIZER ${PROJECT_SOURCE_DIR}/src/quantizer/main_quantize.cpp)
     add_executable(
         quantize
-        ${PROJECT_SOURCE_DIR}/src/quantizer/main.cpp
+        ${PROJECT_SOURCE_DIR}/src/quantizer/main_quantize.cpp
         ${MLLM_QUANT}
         ${MLLM_QUANTIZER}
         ${PROJECT_SOURCE_DIR}/src/ParamLoader.cpp
