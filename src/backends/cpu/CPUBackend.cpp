@@ -247,6 +247,11 @@ int CPUBackend::cpu_threads = 4;
 /************************************************************************************************/
 /* Refactored Helper Functions                                */
 /************************************************************************************************/
+
+bool is_kvcached_tensor(const std::shared_ptr<Tensor> &tensor) {
+    return tensor->masterTensor() != nullptr && tensor->masterTensor()->name().find("Cache") != std::string::npos;
+}
+
 /**
  * @brief Creates the initial output tensor objects (shells), either from an aggregated input or from a list of names.
  * @param out_tensors The vector of output tensors to be populated.
@@ -256,24 +261,22 @@ int CPUBackend::cpu_threads = 4;
  * @param backend The current backend.
  */
 void CPUBackend::_create_output_tensors(
-    std::vector<std::shared_ptr<Tensor>>& out_tensors,
-    const std::vector<std::shared_ptr<Tensor>>& input_tensors,
-    const std::vector<std::string>& out_names,
-    Module* module,
-    map<std::string, std::shared_ptr<Tensor>>& activation_tensors,
-    Backend* backend) {
-
+    std::vector<std::shared_ptr<Tensor>> &out_tensors,
+    const std::vector<std::shared_ptr<Tensor>> &input_tensors,
+    const std::vector<std::string> &out_names,
+    Module *module,
+    map<std::string, std::shared_ptr<Tensor>> &activation_tensors,
+    Backend *backend) {
     if (input_tensors.size() == 1 && !input_tensors[0]->aggregatedTensors().empty()) {
-        const auto& aggregated_tensors = input_tensors[0]->aggregatedTensors();
+        const auto &aggregated_tensors = input_tensors[0]->aggregatedTensors();
         out_tensors.insert(out_tensors.end(), aggregated_tensors.begin(), aggregated_tensors.end());
     } else {
-        for (const auto& out_name : out_names) {
+        for (const auto &out_name : out_names) {
             auto out_tensor = std::make_shared<Tensor>(backend);
             out_tensor->setName(out_name);
             out_tensor->setModule(module);
             auto it = activation_tensors.find(out_name);
-            if (it != activation_tensors.end() && out_name.find("-transpose") == std::string::npos &&
-                out_tensor->ctype() != it->second->ctype()) {
+            if (it != activation_tensors.end() && out_name.find("-transpose") == std::string::npos && out_tensor->ctype() != it->second->ctype()) {
                 out_tensor->chls() = it->second->chls();
                 out_tensor->setCtype(it->second->ctype());
             }
@@ -290,17 +293,15 @@ void CPUBackend::_create_output_tensors(
  * @param standard_alloc_func The function to call for standard allocation.
  */
 void CPUBackend::_allocate_final_tensor(
-    std::shared_ptr<Tensor>& tensor,
-    map<string, shared_ptr<Tensor>> &activation_tensors,
-    Backend* backend) {
-
-    auto act_it = activation_tensors.find(tensor->name());
-    if (act_it != activation_tensors.end() && act_it->second->masterTensor() != nullptr &&
-        act_it->second->masterTensor()->name().find("Cache") != std::string::npos) {
+    std::shared_ptr<Tensor> &tensor,
+    const std::shared_ptr<Tensor> &template_tensor,
+    Backend *backend) {
+    // auto act_it = activation_tensors.find(tensor->name());
+    if (template_tensor->inited() && is_kvcached_tensor(template_tensor)) {
         // It's a KVCache view
-        auto activation_tensor = act_it->second;
-        auto master_tensor = activation_tensor->masterTensor();
-        auto cache_seq_len_ = activation_tensor->shapeOffset()[2];
+        // auto activation_tensor = act_it->second;
+        auto master_tensor = template_tensor->masterTensor();
+        auto cache_seq_len_ = template_tensor->shapeOffset()[2];
         // If this tensor is an input to a KVCache operation, adjust sequence length based on draft tokens
         if (tensor->name().find("cache") == std::string::npos) {
             cache_seq_len_ = master_tensor->cache_seq_len_;
@@ -321,60 +322,56 @@ void CPUBackend::_allocate_final_tensor(
 /**
  * @brief Handles the allocation and setup for an output tensor that is part of an aggregated tensor structure.
  * @param out_tensor The specific output tensor to process.
- * @param activation_tensor The corresponding tensor from the activation map, which holds aggregation info.
+ * @param template_tensor The corresponding tensor from the activation map, which holds aggregation info.
  * @param module The current module.
  * @param backend The current backend.
  */
 void CPUBackend::_allocate_aggregated_tensor(
     std::shared_ptr<Tensor> &out_tensor,
-    const std::shared_ptr<Tensor> &activation_tensor,
+    const std::shared_ptr<Tensor> &template_tensor,
     Module *module,
-    map<std::string, std::shared_ptr<Tensor>>& activation_tensors,
     Backend *backend) {
-    
     bool keep_aggregated_structure = true;
-    if (activation_tensor->aggregatedDim() > 3) {
+    if (template_tensor->aggregatedDim() > 3) {
         keep_aggregated_structure = false; // Cannot handle dimensions > 3
     } else {
-        for (const auto &ag_tensor : activation_tensor->aggregatedTensors()) {
-            bool has_cache_master = (ag_tensor->masterTensor() != nullptr &&
-                                     ag_tensor->masterTensor()->name().find("Cache") != std::string::npos);
-            if (ag_tensor->ctype() != activation_tensor->aggregatedTensors()[0]->ctype() || has_cache_master) {
+        for (const auto &ag_tensor : template_tensor->aggregatedTensors()) {
+            if (ag_tensor->ctype() != template_tensor->aggregatedTensors()[0]->ctype() || is_kvcached_tensor(ag_tensor)) {
                 keep_aggregated_structure = false;
                 break;
             }
         }
     }
-    if (keep_aggregated_structure) {
+    if (!keep_aggregated_structure) {
         vector<shared_ptr<Tensor>> shared_outputs;
-        auto split_dim = activation_tensor->aggregatedDim();
-        const auto& aggregated_tensors_template = activation_tensor->aggregatedTensors();
+        auto split_dim = template_tensor->aggregatedDim();
+        const auto &ag_tensor = template_tensor->aggregatedTensors();
 
-        for (int id = 0; id < aggregated_tensors_template.size(); ++id) {
-            const auto& template_tensor = aggregated_tensors_template[id];
+        for (int id = 0; id < ag_tensor.size(); ++id) {
+            const auto &child_template_tensor = ag_tensor[id];
             auto shared_ot = std::make_shared<Tensor>(backend);
             shared_ot->setName(out_tensor->name() + ".split-" + std::to_string(id));
             shared_ot->setModule(module);
-            shared_ot->setCtype(template_tensor->ctype());
+            shared_ot->setCtype(child_template_tensor->ctype());
             // Reshape based on the split dimension and the template tensor
             switch (split_dim) {
-                case Chl::HEAD:
-                    shared_ot->reshape(out_tensor->batch(), template_tensor->head(), out_tensor->sequence(), out_tensor->dimension());
-                    break;
-                case Chl::SEQUENCE:
-                    shared_ot->reshape(out_tensor->batch(), out_tensor->head(), template_tensor->sequence(), out_tensor->dimension());
-                    break;
-                case Chl::DIMENSION:
-                    shared_ot->reshape(out_tensor->batch(), out_tensor->head(), out_tensor->sequence(), template_tensor->dimension());
-                    break;
-                case Chl::D_HD:
-                case Chl::HD:
-                    shared_ot->reshape(out_tensor->batch(), template_tensor->head(), out_tensor->sequence(), template_tensor->dimension());
-                    break;
-                default:
-                    break; // Should not happen
+            case Chl::HEAD:
+                shared_ot->reshape(out_tensor->batch(), child_template_tensor->head(), out_tensor->sequence(), out_tensor->dimension());
+                break;
+            case Chl::SEQUENCE:
+                shared_ot->reshape(out_tensor->batch(), out_tensor->head(), child_template_tensor->sequence(), out_tensor->dimension());
+                break;
+            case Chl::DIMENSION:
+                shared_ot->reshape(out_tensor->batch(), out_tensor->head(), out_tensor->sequence(), child_template_tensor->dimension());
+                break;
+            case Chl::D_HD:
+            case Chl::HD:
+                shared_ot->reshape(out_tensor->batch(), child_template_tensor->head(), out_tensor->sequence(), child_template_tensor->dimension());
+                break;
+            default:
+                break; // Should not happen
             }
-            _allocate_final_tensor(shared_ot, activation_tensors, backend);
+            _allocate_final_tensor(shared_ot, child_template_tensor, backend);
             shared_outputs.push_back(shared_ot);
         }
         out_tensor->addTensors(shared_outputs, split_dim);
@@ -389,19 +386,18 @@ void CPUBackend::_allocate_aggregated_tensor(
  * @param out_tensors The vector of tensors to allocate (must be reshaped first).
  * @param module The current module.
  * @param backend The current backend.
- * @param standard_alloc_func A function that handles the standard (non-aggregated, non-KVCache) allocation logic.
  */
 void CPUBackend::_allocate_output_tensors(
-    std::vector<std::shared_ptr<Tensor>>& out_tensors,
-    Module* module,
-    map<std::string, std::shared_ptr<Tensor>>& activation_tensors,
-    Backend* backend) {
+    std::vector<std::shared_ptr<Tensor>> &out_tensors,
+    Module *module,
+    map<std::string, std::shared_ptr<Tensor>> &activation_tensors,
+    Backend *backend) {
     for (auto &out_tensor : out_tensors) {
         auto act_it = activation_tensors.find(out_tensor->name());
         if (act_it != activation_tensors.end() && !act_it->second->aggregatedTensors().empty()) {
-            _allocate_aggregated_tensor(out_tensor, act_it->second, module,activation_tensors, backend);
-        } else{
-            _allocate_final_tensor(out_tensor, activation_tensors, backend);
+            _allocate_aggregated_tensor(out_tensor, act_it->second, module, backend);
+        } else {
+            _allocate_final_tensor(out_tensor, act_it->second, backend);
         }
     }
 }
@@ -425,7 +421,7 @@ std::vector<Tensor> CPUBackend::runFunc(
     assert(module != nullptr);
     Backend *backend = input_tensors.empty() ? Backend::global_backends[MLLM_CPU] : input_tensors[0]->backend();
     TensorFunction *func = backend->funcCreate(type);
-    if (module->doTrace) {//trace
+    if (module->doTrace) { // trace
         for (const auto &out_name : out_names) {
             if (activation_tensors.find(out_name) == activation_tensors.end()) {
                 activation_tensors[out_name] = std::make_shared<Tensor>(backend);
@@ -448,8 +444,8 @@ std::vector<Tensor> CPUBackend::runFunc(
     std::vector<std::shared_ptr<Tensor>> out_tensors;
     // Part 1: Create tensor shells (but don't allocate yet)
     if (!in_place) {
-        _create_output_tensors(out_tensors, input_tensors, out_names, module,activation_tensors, backend);
-    }else{
+        _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, backend);
+    } else {
         // If in-place, we already have out_tensors filled with input tensors.
         for (size_t i = 0; i < input_tensors.size() && i < out_names.size(); ++i) {
             input_tensors[i]->setName(out_names[i]);
@@ -484,7 +480,7 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
         out_names.push_back(tensor_name);
     }
 
-    if (module->doTrace) {//trace
+    if (module->doTrace) { // trace
         for (const auto &out_name : out_names) {
             if (activation_tensors.find(out_name) == activation_tensors.end()) {
                 activation_tensors[out_name] = std::make_shared<Tensor>(layer->backend_);
@@ -494,15 +490,15 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
         }
         vector<shared_ptr<Tensor>> inPtrs;
         for (auto &input : inputs) {
-            inPtrs.push_back(input.shouldInGraphs() ? activation_tensors[input.name()] : 
-                                std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
+            inPtrs.push_back(input.shouldInGraphs() ? activation_tensors[input.name()] :
+                                                      std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
         }
         vector<shared_ptr<Tensor>> outPtrs = {};
         for (auto &name : out_names) outPtrs.push_back(activation_tensors[name]);
         layer->op_->setUp(inPtrs, outPtrs);
         vector<Tensor> results = {};
         for (auto &name : out_names) results.push_back(*activation_tensors[name]);
-        return results; 
+        return results;
     }
 
 #ifdef DEBUGOPTIME
@@ -514,7 +510,7 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
     }
     vector<shared_ptr<Tensor>> out_tensors;
     // Part 1: Create tensor shells
-     _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, layer->backend_);
+    _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, layer->backend_);
     // Part 2: Reshape the tensors
     layer->op_->reshape(input_tensors, out_tensors);
     // Part 3: Allocate memory
