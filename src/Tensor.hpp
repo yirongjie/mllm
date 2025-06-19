@@ -84,7 +84,7 @@ class Tensor {
 public:
     int cache_seq_len_;
     bool inited() {
-        return impl_ != nullptr;
+        return impl_ != nullptr && impl_->host_ptr_ != nullptr && impl_->name_ != "";
     }
 
 public:

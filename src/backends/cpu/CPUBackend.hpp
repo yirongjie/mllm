@@ -129,6 +129,7 @@ private:
     void _allocate_final_tensor(
         std::shared_ptr<Tensor> &tensor,
         const std::shared_ptr<Tensor> &template_tensor,
+        bool has_template_tensor,
         Backend *backend);
     void _allocate_aggregated_tensor(
         std::shared_ptr<Tensor> &out_tensor,

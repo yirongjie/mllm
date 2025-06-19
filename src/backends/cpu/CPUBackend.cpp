@@ -295,9 +295,10 @@ void CPUBackend::_create_output_tensors(
 void CPUBackend::_allocate_final_tensor(
     std::shared_ptr<Tensor> &tensor,
     const std::shared_ptr<Tensor> &template_tensor,
+    bool has_template_tensor,
     Backend *backend) {
     // auto act_it = activation_tensors.find(tensor->name());
-    if (template_tensor->inited() && is_kvcached_tensor(template_tensor)) {
+    if (has_template_tensor && is_kvcached_tensor(template_tensor)) {
         // It's a KVCache view
         // auto activation_tensor = act_it->second;
         auto master_tensor = template_tensor->masterTensor();
@@ -371,7 +372,7 @@ void CPUBackend::_allocate_aggregated_tensor(
             default:
                 break; // Should not happen
             }
-            _allocate_final_tensor(shared_ot, child_template_tensor, backend);
+            _allocate_final_tensor(shared_ot, child_template_tensor, true, backend);
             shared_outputs.push_back(shared_ot);
         }
         out_tensor->addTensors(shared_outputs, split_dim);
@@ -397,7 +398,7 @@ void CPUBackend::_allocate_output_tensors(
         if (act_it != activation_tensors.end() && !act_it->second->aggregatedTensors().empty()) {
             _allocate_aggregated_tensor(out_tensor, act_it->second, module, backend);
         } else {
-            _allocate_final_tensor(out_tensor, act_it->second, backend);
+            _allocate_final_tensor(out_tensor, act_it->second, act_it != activation_tensors.end(), backend);
         }
     }
 }
