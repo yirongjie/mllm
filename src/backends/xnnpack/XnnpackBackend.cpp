@@ -850,47 +850,28 @@ std::vector<Tensor> XnnpackBackend::runLayer(Layer *layer, std::vector<Tensor> i
         // use Module::tmp_device only when creating the op as the recersive module backend only handled in load and init stage
         layer->backend_ = Backend::global_backends[Module::tmp_device];
         do_init = !layer->inited_loaded;
-        if (layer->op_ == nullptr) {
-#ifdef USE_QNN
-            if ((layer->param_["type"] == KVCACHE || layer->param_["type"] == KVCACHENPU) && (Backend::global_backends.find(MLLM_QNN) != Backend::global_backends.end())) {
-                if (kv_cache_map.find(layer->name_) == kv_cache_map.end()) {
-                    // for the prefill part, we need to create a new op
-                    layer->param_["type"] = KVCACHENPU;
-                    layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
-                    kv_cache_map[layer->name_] = layer->op_;
-                } else {
-#ifdef DEBUGPRINT
-                    std::cout << name_ << " is shared used" << std::endl;
-#endif
-                    // for the decoding part, we need to get created op from global container
-                    layer->op_ = kv_cache_map[layer->name_];
-                }
-            } else {
-                layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
-            }
-#else
-            layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
-#endif
-        }
+        // if (layer->op_ == nullptr) {
+        //     layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
+        // }
         if (layer->param_["type"] == SUBGRAPHFINALIZE) {
             for (auto &input : inputs) {
                 activation_tensors[input.name()]->setTtype(GRAPH_OUTPUT);
             }
         }
-        if (module->doLoad) {
-            layer->op_->load(*module->loader);
-            layer->inited_loaded = true;
-        } else if (layer->loaded_param) {
-            layer->inited_loaded = layer->loaded_param;
-        } else {
-            if (!layer->inited_loaded) {
-                // module->loader = new ParamLoader("");
-                // op_->load(*module->loader);
-                auto empty_loader = new ParamLoader("");
-                layer->op_->load(*empty_loader);
-                layer->inited_loaded = true;
-            }
-        }
+        // if (module->doLoad) {
+        //     layer->op_->load(*module->loader);
+        //     layer->inited_loaded = true;
+        // } else if (layer->loaded_param) {
+        //     layer->inited_loaded = layer->loaded_param;
+        // } else {
+        //     if (!layer->inited_loaded) {
+        //         // module->loader = new ParamLoader("");
+        //         // op_->load(*module->loader);
+        //         auto empty_loader = new ParamLoader("");
+        //         layer->op_->load(*empty_loader);
+        //         layer->inited_loaded = true;
+        //     }
+        // }
         vector<string> layer_next_names = {};
         if (N > 1) {
             for (int i = 0; i < N; ++i) {

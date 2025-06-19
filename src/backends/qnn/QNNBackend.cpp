@@ -1084,53 +1084,31 @@ std::vector<Tensor> QNNBackend::runLayer(Layer *layer, std::vector<Tensor> input
     auto &activation_tensors_num = module->activation_tensors_num;
     // Module::runlistIdx = saved_list_idx;
     bool do_init = false;
-
     if (module->doLoad || !layer->inited_loaded) {
         // set backend to current module device and try to create op
         // use Module::tmp_device only when creating the op as the recersive module backend only handled in load and init stage
         layer->backend_ = Backend::global_backends[Module::tmp_device];
         do_init = !layer->inited_loaded;
-        if (layer->op_ == nullptr) {
-#ifdef USE_QNN
-            if ((layer->param_["type"] == KVCACHE || layer->param_["type"] == KVCACHENPU) && (Backend::global_backends.find(MLLM_QNN) != Backend::global_backends.end())) {
-                if (kv_cache_map.find(layer->name_) == kv_cache_map.end()) {
-                    // for the prefill part, we need to create a new op
-                    layer->param_["type"] = KVCACHENPU;
-                    layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
-                    kv_cache_map[layer->name_] = layer->op_;
-                } else {
-#ifdef DEBUGPRINT
-                    std::cout << name_ << " is shared used" << std::endl;
-#endif
-                    // for the decoding part, we need to get created op from global container
-                    layer->op_ = kv_cache_map[layer->name_];
-                }
-            } else {
-                layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
-            }
-#else
-            layer->op_ = layer->backend_->opCreate(layer->param_, layer->name_);
-#endif
-        }
+        
         if (layer->param_["type"] == SUBGRAPHFINALIZE) {
             for (auto &input : inputs) {
                 activation_tensors[input.name()]->setTtype(GRAPH_OUTPUT);
             }
         }
-        if (module->doLoad) {
-            layer->op_->load(*module->loader);
-            layer->inited_loaded = true;
-        } else if (layer->loaded_param) {
-            layer->inited_loaded = layer->loaded_param;
-        } else {
-            if (!layer->inited_loaded) {
-                // module->loader = new ParamLoader("");
-                // op_->load(*module->loader);
-                auto empty_loader = new ParamLoader("");
-                layer->op_->load(*empty_loader);
-                layer->inited_loaded = true;
-            }
-        }
+        // if (module->doLoad) {
+        //     layer->op_->load(*module->loader);
+        //     layer->inited_loaded = true;
+        // } else if (layer->loaded_param) {
+        //     layer->inited_loaded = layer->loaded_param;
+        // } else {
+        //     if (!layer->inited_loaded) {
+        //         // module->loader = new ParamLoader("");
+        //         // op_->load(*module->loader);
+        //         auto empty_loader = new ParamLoader("");
+        //         layer->op_->load(*empty_loader);
+        //         layer->inited_loaded = true;
+        //     }
+        // }
         vector<string> layer_next_names = {};
         if (N > 1) {
             for (int i = 0; i < N; ++i) {
@@ -1172,14 +1150,14 @@ std::vector<Tensor> QNNBackend::runLayer(Layer *layer, std::vector<Tensor> input
                 activation_tensors_num[next_name] = 0;
             }
         }
-        if (module->doLoad) {
-            vector<Tensor> output_result = {};
-            for (const auto &layer_next_name : layer_next_names) {
-                string next_name = Layer::use_layername_2_tensorname ? Layer::layername_2_tensorname[layer_next_name] : (layer_next_name.find("visual") != string::npos ? Layer::layername_2_tensorname[layer_next_name] : layer_next_name);
-                output_result.push_back(*activation_tensors[next_name]);
-            }
-            return output_result;
+        
+        vector<Tensor> output_result = {};
+        for (const auto &layer_next_name : layer_next_names) {
+            string next_name = Layer::use_layername_2_tensorname ? Layer::layername_2_tensorname[layer_next_name] : (layer_next_name.find("visual") != string::npos ? Layer::layername_2_tensorname[layer_next_name] : layer_next_name);
+            output_result.push_back(*activation_tensors[next_name]);
         }
+        return output_result;
+        
     }
     // input_tensors
     vector<shared_ptr<Tensor>> input_tensors;

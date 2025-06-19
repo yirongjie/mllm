@@ -18,9 +18,7 @@ class Module;
 class Layer;
 
 // KVCache map for QNN-CPU KVCache sharing
-#ifdef USE_QNN
 static std::unordered_map<string, Op *> kv_cache_map;
-#endif
 
 class TensorFunction {
 public:
