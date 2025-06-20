@@ -1540,9 +1540,14 @@ private:
     }
 
     // in_place=true: 只有输入, 输出==输入，返回输入
+    // static std::vector<Tensor> runFunc(std::vector<std::string> out_names,
+    //                                    TensorFuncType type,
+    //                                    std::vector<float> float_args,
+    //                                    std::vector<Tensor> input_tensors = {},
+    //                                    bool in_place = false);
     static std::vector<Tensor> runFunc(std::vector<std::string> out_names,
-                                       TensorFuncType type,
-                                       std::vector<float> float_args,
+                                       OpType type,
+                                       OpParam param,
                                        std::vector<Tensor> input_tensors = {},
                                        bool in_place = false);
 

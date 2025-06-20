@@ -71,32 +71,60 @@
 #include "op/CPUKVCacheNPU.hpp"
 #include "op/CPUKVCacheXp.hpp"
 
-#include "function/CPUBinaryFunc.hpp"
-#include "function/CPUCatFunc.hpp"
-#include "function/CPUClipFunc.hpp"
-#include "function/CPUExpandFunc.hpp"
-#include "function/CPUFlattenFunc.hpp"
-#include "function/CPUMatmulFunc.hpp"
-#include "function/CPUMeanFunc.hpp"
-#include "function/CPUNormFunc.hpp"
-#include "function/CPURangeFunc.hpp"
-#include "function/CPUSplitFunc.hpp"
-#include "function/CPUSumFunc.hpp"
-#include "function/CPUTopkFunc.hpp"
-#include "function/CPUTransposeFunc.hpp"
-#include "function/CPUViewFunc.hpp"
-#include "function/CPUWhereFunc.hpp"
-#include "function/CPUIndexPutFunc.hpp"
-#include "function/CPUArgSortFunc.hpp"
-#include "function/CPUBinCountFunc.hpp"
-#include "function/CPURepeatFunc.hpp"
-#include "function/CPULikeFunc.hpp"
-#include "function/CPUScatterReduceFunc.hpp"
-#include "function/CPUVisionRoPEFunc.hpp"
-#include "function/CPUFlashAttention2Func.hpp"
+#include "op/CPUBinaryFunc.hpp"
+#include "op/CPUCatFunc.hpp"
+#include "op/CPUClipFunc.hpp"
+#include "op/CPUExpandFunc.hpp"
+#include "op/CPUFlattenFunc.hpp"
+#include "op/CPUMatmulFunc.hpp"
+#include "op/CPUMeanFunc.hpp"
+#include "op/CPUNormFunc.hpp"
+#include "op/CPURangeFunc.hpp"
+#include "op/CPUSplitFunc.hpp"
+#include "op/CPUSumFunc.hpp"
+#include "op/CPUTopkFunc.hpp"
+#include "op/CPUTransposeFunc.hpp"
+#include "op/CPUViewFunc.hpp"
+#include "op/CPUWhereFunc.hpp"
+#include "op/CPUIndexPutFunc.hpp"
+#include "op/CPUArgSortFunc.hpp"
+#include "op/CPUBinCountFunc.hpp"
+#include "op/CPURepeatFunc.hpp"
+#include "op/CPULikeFunc.hpp"
+#include "op/CPUScatterReduceFunc.hpp"
+#include "op/CPUVisionRoPEFunc.hpp"
+#include "op/CPUFlashAttention2Func.hpp"
 
-#include "function/CPUFuyuGatherEmbdFunc.hpp"
-#include "function/CPUPhi3VhdmergeFunc.hpp"
+#include "op/CPUFuyuGatherEmbdFunc.hpp"
+#include "op/CPUPhi3VhdmergeFunc.hpp"
+
+
+// #include "function/CPUBinaryFunc.hpp"
+// #include "function/CPUCatFunc.hpp"
+// #include "function/CPUClipFunc.hpp"
+// #include "function/CPUExpandFunc.hpp"
+// #include "function/CPUFlattenFunc.hpp"
+// #include "function/CPUMatmulFunc.hpp"
+// #include "function/CPUMeanFunc.hpp"
+// #include "function/CPUNormFunc.hpp"
+// #include "function/CPURangeFunc.hpp"
+// #include "function/CPUSplitFunc.hpp"
+// #include "function/CPUSumFunc.hpp"
+// #include "function/CPUTopkFunc.hpp"
+// #include "function/CPUTransposeFunc.hpp"
+// #include "function/CPUViewFunc.hpp"
+// #include "function/CPUWhereFunc.hpp"
+// #include "function/CPUIndexPutFunc.hpp"
+// #include "function/CPUArgSortFunc.hpp"
+// #include "function/CPUBinCountFunc.hpp"
+// #include "function/CPURepeatFunc.hpp"
+// #include "function/CPULikeFunc.hpp"
+// #include "function/CPUScatterReduceFunc.hpp"
+// #include "function/CPUVisionRoPEFunc.hpp"
+// #include "function/CPUFlashAttention2Func.hpp"
+
+// #include "function/CPUFuyuGatherEmbdFunc.hpp"
+// #include "function/CPUPhi3VhdmergeFunc.hpp"
 
 namespace mllm {
 class CPUBackendCreator : public BackendCreator {
@@ -195,6 +223,45 @@ void CPUBackend::registerOps() {
     addCreator(XP_KVCACHE, (CPUBackend::Creator *)(new CPUKVCacheXpCreator()));
     addCreator(NTKROPE, (CPUBackend::Creator *)(new CPUNTKRoPECreator()));
     addCreator(HEADLINEAR, (CPUBackend::Creator *)(new CPUHeadLinearCreator()));
+
+    //funsction
+    addCreator(F_ADD, (CPUBackend::Creator *)(new CPUaddFunctionCreator()));
+    addCreator(F_SUB, (CPUBackend::Creator *)(new CPUsubFunctionCreator()));
+    addCreator(F_MUL, (CPUBackend::Creator *)(new CPUmulFunctionCreator()));
+    addCreator(F_DIV, (CPUBackend::Creator *)(new CPUdivFunctionCreator()));
+    addCreator(F_DIVINT, (CPUBackend::Creator *)(new CPUdivintFunctionCreator()));
+    addCreator(F_TTADD, (CPUBackend::Creator *)(new CPUaddTwoFunctionCreator()));
+    addCreator(F_TTSUB, (CPUBackend::Creator *)(new CPUsubTwoFunctionCreator()));
+    addCreator(F_TTMUL, (CPUBackend::Creator *)(new CPUmulTwoFunctionCreator()));
+    addCreator(F_TTDIV, (CPUBackend::Creator *)(new CPUdivTwoFunctionCreator()));
+    addCreator(F_MM,       (CPUBackend::Creator *)(new CPUmmFunctionCreator()));
+    addCreator(F_NORM,     (CPUBackend::Creator *)(new CPUnormFunctionCreator()));
+    addCreator(F_MEAN,     (CPUBackend::Creator *)(new CPUmeanFunctionCreator()));
+    addCreator(F_CAT,      (CPUBackend::Creator *)(new CPUcatFunctionCreator()));
+    addCreator(F_VIEW,     (CPUBackend::Creator *)(new CPUviewFunctionCreator()));
+    addCreator(F_TRANPOSE, (CPUBackend::Creator *)(new CPUtransposeFunctionCreator()));
+    addCreator(F_FLATTEN,  (CPUBackend::Creator *)(new CPUflattenFunctionCreator()));
+    addCreator(F_CLIP,     (CPUBackend::Creator *)(new CPUclipFunctionCreator()));
+    addCreator(F_CLIPAXIS, (CPUBackend::Creator *)(new CPUclipaxisFunctionCreator()));
+    addCreator(F_CLIPTENSOR, (CPUBackend::Creator *)(new CPUcliptensorFunctionCreator()));
+    addCreator(F_RANGE,    (CPUBackend::Creator *)(new CPURangeFunctionCreator()));
+    addCreator(F_WHERE,    (CPUBackend::Creator *)(new CPUwhereFunctionCreator()));
+    addCreator(F_INDEX_PUT, (CPUBackend::Creator *)(new CPUIndexPutFunctionCreator()));
+    addCreator(F_SPLIT,    (CPUBackend::Creator *)(new CPUsplitFunctionCreator()));
+    addCreator(F_SUM,      (CPUBackend::Creator *)(new CPUsumFunctionCreator()));
+    addCreator(F_TOPK,     (CPUBackend::Creator *)(new CPUtopkFunctionCreator()));
+    addCreator(F_EXPPAND,  (CPUBackend::Creator *)(new CPUexpandFunctionCreator()));
+    addCreator(F_ARGSORT,  (CPUBackend::Creator *)(new CPUargsortFunctionCreator()));
+    addCreator(F_BINCOUNT, (CPUBackend::Creator *)(new CPUbincountFunctionCreator()));
+    addCreator(F_REPEAT,   (CPUBackend::Creator *)(new CPUrepeatFunctionCreator()));
+    addCreator(F_LIKE,     (CPUBackend::Creator *)(new CPUlikeFunctionCreator()));
+    addCreator(F_SCATTERREDUCE, (CPUBackend::Creator *)(new CPUScatterReduceFunctionCreator()));
+    addCreator(F_APPLY_VISIOROPE, (CPUBackend::Creator *)(new CPUVisionRoPEFuncFunctionCreator()));
+    addCreator(F_FA2,      (CPUBackend::Creator *)(new CPUFlashAttention2FuncCreator()));
+    // models use only
+    addCreator(F_FUYU_GATHER_EMBD, (CPUBackend::Creator *)(new CPUFuyuGatherEmbdFuncCreator()));
+    addCreator(F_PHI3V_HD_MERGE,   (CPUBackend::Creator *)(new CPUPhi3VhdmergeFunctionCreator()));
+
 }
 TensorFunction *CPUBackend::funcCreate(const TensorFuncType type) {
     auto iter = map_function_.find(type);
@@ -206,42 +273,42 @@ TensorFunction *CPUBackend::funcCreate(const TensorFuncType type) {
 }
 
 void CPUBackend::registerFuncs() {
-    map_function_[TensorFuncType::FUNC_ADD] = new CPUaddFunction();
-    map_function_[TensorFuncType::FUNC_SUB] = new CPUsubFunction();
-    map_function_[TensorFuncType::FUNC_MUL] = new CPUmulFunction();
-    map_function_[TensorFuncType::FUNC_DIV] = new CPUdivFunction();
-    map_function_[TensorFuncType::FUNC_DIVINT] = new CPUdivintFunction();
-    map_function_[TensorFuncType::FUNC_TTADD] = new CPUaddTwoFunction();
-    map_function_[TensorFuncType::FUNC_TTSUB] = new CPUsubTwoFunction();
-    map_function_[TensorFuncType::FUNC_TTMUL] = new CPUmulTwoFunction();
-    map_function_[TensorFuncType::FUNC_TTDIV] = new CPUdivTwoFunction();
-    map_function_[TensorFuncType::FUNC_MM] = new CPUmmFunction();
-    map_function_[TensorFuncType::FUNC_NORM] = new CPUnormFunction();
-    map_function_[TensorFuncType::FUNC_MEAN] = new CPUmeanFunction();
-    map_function_[TensorFuncType::FUNC_CAT] = new CPUcatFunction();
-    map_function_[TensorFuncType::FUNC_VIEW] = new CPUviewFunction();
-    map_function_[TensorFuncType::FUNC_TRANPOSE] = new CPUtransposeFunction();
-    map_function_[TensorFuncType::FUNC_FLATTEN] = new CPUflattenFunction();
-    map_function_[TensorFuncType::FUNC_CLIP] = new CPUclipFunction();
-    map_function_[TensorFuncType::FUNC_CLIPAXIS] = new CPUclipaxisFunction();
-    map_function_[TensorFuncType::FUNC_CLIPTENSOR] = new CPUcliptensorFunction();
-    map_function_[TensorFuncType::FUNC_RANGE] = new CPURangeFunction();
-    map_function_[TensorFuncType::FUNC_WHERE] = new CPUwhereFunction();
-    map_function_[TensorFuncType::FUNC_INDEX_PUT] = new CPUIndexPutFunction();
-    map_function_[TensorFuncType::FUNC_SPLIT] = new CPUsplitFunction();
-    map_function_[TensorFuncType::FUNC_SUM] = new CPUsumFunction();
-    map_function_[TensorFuncType::FUNC_TOPK] = new CPUtopkFunction();
-    map_function_[TensorFuncType::FUNC_EXPPAND] = new CPUexpandFunction();
-    map_function_[TensorFuncType::FUNC_ARGSORT] = new CPUargsortFunction();
-    map_function_[TensorFuncType::FUNC_BINCOUNT] = new CPUbincountFunction();
-    map_function_[TensorFuncType::FUNC_REPEAT] = new CPUrepeatFunction();
-    map_function_[TensorFuncType::FUNC_LIKE] = new CPUlikeFunction();
-    map_function_[TensorFuncType::FUNC_SCATTERREDUCE] = new CPUScatterReduceFunction();
-    map_function_[TensorFuncType::FUNC_APPLY_VISIOROPE] = new CPUVisionRoPEFuncFunction();
-    map_function_[TensorFuncType::FUNC_FA2] = new CPUFlashAttention2Func();
-    // models use only
-    map_function_[TensorFuncType::FUNC_FUYU_GATHER_EMBD] = new CPUFuyuGatherEmbdFunc();
-    map_function_[TensorFuncType::FUNC_PHI3V_HD_MERGE] = new CPUPhi3VhdmergeFunction();
+    // map_function_[TensorFuncType::FUNC_ADD] = new CPUaddFunction();
+    // map_function_[TensorFuncType::FUNC_SUB] = new CPUsubFunction();
+    // map_function_[TensorFuncType::FUNC_MUL] = new CPUmulFunction();
+    // map_function_[TensorFuncType::FUNC_DIV] = new CPUdivFunction();
+    // map_function_[TensorFuncType::FUNC_DIVINT] = new CPUdivintFunction();
+    // map_function_[TensorFuncType::FUNC_TTADD] = new CPUaddTwoFunction();
+    // map_function_[TensorFuncType::FUNC_TTSUB] = new CPUsubTwoFunction();
+    // map_function_[TensorFuncType::FUNC_TTMUL] = new CPUmulTwoFunction();
+    // map_function_[TensorFuncType::FUNC_TTDIV] = new CPUdivTwoFunction();
+    // map_function_[TensorFuncType::FUNC_MM] = new CPUmmFunction();
+    // map_function_[TensorFuncType::FUNC_NORM] = new CPUnormFunction();
+    // map_function_[TensorFuncType::FUNC_MEAN] = new CPUmeanFunction();
+    // map_function_[TensorFuncType::FUNC_CAT] = new CPUcatFunction();
+    // map_function_[TensorFuncType::FUNC_VIEW] = new CPUviewFunction();
+    // map_function_[TensorFuncType::FUNC_TRANPOSE] = new CPUtransposeFunction();
+    // map_function_[TensorFuncType::FUNC_FLATTEN] = new CPUflattenFunction();
+    // map_function_[TensorFuncType::FUNC_CLIP] = new CPUclipFunction();
+    // map_function_[TensorFuncType::FUNC_CLIPAXIS] = new CPUclipaxisFunction();
+    // map_function_[TensorFuncType::FUNC_CLIPTENSOR] = new CPUcliptensorFunction();
+    // map_function_[TensorFuncType::FUNC_RANGE] = new CPURangeFunction();
+    // map_function_[TensorFuncType::FUNC_WHERE] = new CPUwhereFunction();
+    // map_function_[TensorFuncType::FUNC_INDEX_PUT] = new CPUIndexPutFunction();
+    // map_function_[TensorFuncType::FUNC_SPLIT] = new CPUsplitFunction();
+    // map_function_[TensorFuncType::FUNC_SUM] = new CPUsumFunction();
+    // map_function_[TensorFuncType::FUNC_TOPK] = new CPUtopkFunction();
+    // map_function_[TensorFuncType::FUNC_EXPPAND] = new CPUexpandFunction();
+    // map_function_[TensorFuncType::FUNC_ARGSORT] = new CPUargsortFunction();
+    // map_function_[TensorFuncType::FUNC_BINCOUNT] = new CPUbincountFunction();
+    // map_function_[TensorFuncType::FUNC_REPEAT] = new CPUrepeatFunction();
+    // map_function_[TensorFuncType::FUNC_LIKE] = new CPUlikeFunction();
+    // map_function_[TensorFuncType::FUNC_SCATTERREDUCE] = new CPUScatterReduceFunction();
+    // map_function_[TensorFuncType::FUNC_APPLY_VISIOROPE] = new CPUVisionRoPEFuncFunction();
+    // map_function_[TensorFuncType::FUNC_FA2] = new CPUFlashAttention2Func();
+    // // models use only
+    // map_function_[TensorFuncType::FUNC_FUYU_GATHER_EMBD] = new CPUFuyuGatherEmbdFunc();
+    // map_function_[TensorFuncType::FUNC_PHI3V_HD_MERGE] = new CPUPhi3VhdmergeFunction();
 };
 
 int CPUBackend::cpu_threads = 4;
@@ -290,91 +357,84 @@ void CPUBackend::_create_output_tensors(
  * @param module The current module.
  * @param backend The current backend.
  */
-std::vector<Tensor> CPUBackend::runFunc(
-    std::vector<std::string> out_names,
-    TensorFuncType type,
-    std::vector<float> float_args,
-    std::vector<Tensor> inputs,
-    bool in_place) {
-    Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
-    auto &activation_tensors = module->activation_tensors;
-    assert(module != nullptr);
-    Backend *backend = inputs.empty() ? Backend::global_backends[MLLM_CPU] : inputs[0].backend();
-    TensorFunction *func = backend->funcCreate(type);
-    if (module->doTrace) { // trace
-        for (const auto &out_name : out_names) {
-            if (activation_tensors.find(out_name) == activation_tensors.end()) {
-                activation_tensors[out_name] = std::make_shared<Tensor>(backend);
-                activation_tensors[out_name]->setName(out_name);
-                activation_tensors[out_name]->setModule(module);
-            }
-        }
-        std::vector<std::shared_ptr<Tensor>> inPtrs;
-        for (auto &input : inputs) {
-            inPtrs.push_back(input.shouldInGraphs() ? activation_tensors[input.name()] :
-                                                      std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
-        }
-        std::vector<std::shared_ptr<Tensor>> outPtrs;
-        for (auto &name : out_names) outPtrs.push_back(activation_tensors[name]);
-        func->setUp(outPtrs, inPtrs, float_args);
-        std::vector<Tensor> results;
-        for (auto &name : out_names) results.push_back(*activation_tensors[name]);
-        return results;
-    }
-#ifdef DEBUGOPTIME
-    auto start_t = mllm_time_us();
-#endif
-    vector<shared_ptr<Tensor>> input_tensors;
-    for (auto &input : inputs) {
-        input_tensors.push_back(std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
-    }
-    std::vector<std::shared_ptr<Tensor>> out_tensors;
-    // Part 1: Create tensor shells (but don't allocate yet)
-    if (!in_place) {
-        _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, backend);
-    } else {
-        // If in-place, we already have out_tensors filled with input tensors.
-        for (size_t i = 0; i < input_tensors.size() && i < out_names.size(); ++i) {
-            input_tensors[i]->setName(out_names[i]);
-            out_tensors.push_back(input_tensors[i]);
-        }
-    }
-    // Part 2: Reshape the tensors to determine their dimensions
-    func->reshape(out_tensors, input_tensors, float_args);
-    // Part 3: Allocate memory for the now-reshaped tensors
-    if (!in_place) {
-        for (auto &out_tensor : out_tensors) {
-            auto act_it = activation_tensors.find(out_tensor->name());
-            auto template_it = act_it != activation_tensors.end()? act_it->second:nullptr;
-            out_tensor->allocFromTemplate(template_it);
-        }
-    }
-    // Part 4: Execute the operation
-    func->execute(out_tensors, input_tensors, float_args);
+// std::vector<Tensor> CPUBackend::runFunc(
+//     std::vector<std::string> out_names,
+//     TensorFuncType type,
+//     std::vector<float> float_args,
+//     std::vector<Tensor> inputs,
+//     bool in_place) {
+//     Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
+//     auto &activation_tensors = module->activation_tensors;
+//     assert(module != nullptr);
+//     Backend *backend = inputs.empty() ? Backend::global_backends[MLLM_CPU] : inputs[0].backend();
+//     TensorFunction *func = backend->funcCreate(type);
+//     if (module->doTrace) { // trace
+//         for (const auto &out_name : out_names) {
+//             if (activation_tensors.find(out_name) == activation_tensors.end()) {
+//                 activation_tensors[out_name] = std::make_shared<Tensor>(backend);
+//                 activation_tensors[out_name]->setName(out_name);
+//                 activation_tensors[out_name]->setModule(module);
+//             }
+//         }
+//         std::vector<std::shared_ptr<Tensor>> inPtrs;
+//         for (auto &input : inputs) {
+//             inPtrs.push_back(input.shouldInGraphs() ? activation_tensors[input.name()] :
+//                                                       std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
+//         }
+//         std::vector<std::shared_ptr<Tensor>> outPtrs;
+//         for (auto &name : out_names) outPtrs.push_back(activation_tensors[name]);
+//         func->setUp(outPtrs, inPtrs, float_args);
+//         std::vector<Tensor> results;
+//         for (auto &name : out_names) results.push_back(*activation_tensors[name]);
+//         return results;
+//     }
+// #ifdef DEBUGOPTIME
+//     auto start_t = mllm_time_us();
+// #endif
+//     vector<shared_ptr<Tensor>> input_tensors;
+//     for (auto &input : inputs) {
+//         input_tensors.push_back(std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
+//     }
+//     std::vector<std::shared_ptr<Tensor>> out_tensors;
+//     // Part 1: Create tensor shells (but don't allocate yet)
+//     if (!in_place) {
+//         _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, backend);
+//     } else {
+//         // If in-place, we already have out_tensors filled with input tensors.
+//         for (size_t i = 0; i < input_tensors.size() && i < out_names.size(); ++i) {
+//             input_tensors[i]->setName(out_names[i]);
+//             out_tensors.push_back(input_tensors[i]);
+//         }
+//     }
+//     // Part 2: Reshape the tensors to determine their dimensions
+//     func->reshape(out_tensors, input_tensors, float_args);
+//     // Part 3: Allocate memory for the now-reshaped tensors
+//     if (!in_place) {
+//         for (auto &out_tensor : out_tensors) {
+//             auto act_it = activation_tensors.find(out_tensor->name());
+//             auto template_it = act_it != activation_tensors.end()? act_it->second:nullptr;
+//             out_tensor->allocFromTemplate(template_it);
+//         }
+//     }
+//     // Part 4: Execute the operation
+//     func->execute(out_tensors, input_tensors, float_args);
 
-#ifdef DEBUGOPTIME
-    auto end_t = mllm_time_us();
-    std::cout << out_names[0] << " |  time: " << (end_t - start_t) / 1000.0F << "ms" << std::endl;
-#endif
-    vector<Tensor> results;
-    for (const auto &out_tensor : out_tensors) { results.push_back(*out_tensor); }
-    return results;
-}
+// #ifdef DEBUGOPTIME
+//     auto end_t = mllm_time_us();
+//     std::cout << out_names[0] << " |  time: " << (end_t - start_t) / 1000.0F << "ms" << std::endl;
+// #endif
+//     vector<Tensor> results;
+//     for (const auto &out_tensor : out_tensors) { results.push_back(*out_tensor); }
+//     return results;
+// }
 
-std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> inputs, int N) {
-    Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
+std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::vector<std::string> out_names, bool in_place){
+   Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
     map<string, shared_ptr<Tensor>> &activation_tensors = module->activation_tensors;
-    vector<string> out_names;
-    int count = (N > 1) ? N : 1;
-    for (int i = 0; i < count; ++i) {
-        std::string tensor_name = (N > 1) ? "out-" + layer->op_->name() + "-" + std::to_string(i) : "out-" + layer->op_->name();
-        out_names.push_back(tensor_name);
-    }
-
     if (module->doTrace) { // trace
         for (const auto &out_name : out_names) {
             if (activation_tensors.find(out_name) == activation_tensors.end()) {
-                activation_tensors[out_name] = std::make_shared<Tensor>(layer->backend_);
+                activation_tensors[out_name] = std::make_shared<Tensor>(op->backend());
                 activation_tensors[out_name]->setName(out_name);
                 activation_tensors[out_name]->setModule(module);
             }
@@ -386,7 +446,7 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
         }
         vector<shared_ptr<Tensor>> outPtrs = {};
         for (auto &name : out_names) outPtrs.push_back(activation_tensors[name]);
-        layer->op_->setUp(inPtrs, outPtrs);
+        op->setUp(inPtrs, outPtrs);
         vector<Tensor> results = {};
         for (auto &name : out_names) results.push_back(*activation_tensors[name]);
         return results;
@@ -401,17 +461,27 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
     }
     vector<shared_ptr<Tensor>> out_tensors;
     // Part 1: Create tensor shells
-    _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, layer->backend_);
+    if (!in_place) {
+        _create_output_tensors(out_tensors, input_tensors, out_names, module, activation_tensors, op->backend());
+    } else {
+        // If in-place, we already have out_tensors filled with input tensors.
+        for (size_t i = 0; i < input_tensors.size() && i < out_names.size(); ++i) {
+            input_tensors[i]->setName(out_names[i]);
+            out_tensors.push_back(input_tensors[i]);
+        }
+    }
     // Part 2: Reshape the tensors
-    layer->op_->reshape(input_tensors, out_tensors);
+    op->reshape(input_tensors, out_tensors);
     // Part 3: Allocate memory
-    for (auto &out_tensor : out_tensors) {
-        auto act_it = activation_tensors.find(out_tensor->name());
-        auto template_it = act_it != activation_tensors.end()? act_it->second:nullptr;
-        out_tensor->allocFromTemplate(template_it);
+    if (!in_place) {
+        for (auto &out_tensor : out_tensors) {
+            auto act_it = activation_tensors.find(out_tensor->name());
+            auto template_it = act_it != activation_tensors.end()? act_it->second:nullptr;
+            out_tensor->allocFromTemplate(template_it);
+        }
     }
     // Part 4: Execute the operation
-    layer->op_->execute(input_tensors, out_tensors);
+    op->execute(input_tensors, out_tensors);
 
 #ifdef DEBUGOPTIME
     uint64_t time_end = mllm_time_us();
@@ -423,6 +493,18 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
     for (const auto &out_tensor : out_tensors) { results.push_back(*out_tensor); }
     return results;
 }
+
+// std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> inputs, int N) {
+//     Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
+//     map<string, shared_ptr<Tensor>> &activation_tensors = module->activation_tensors;
+//     vector<string> out_names;
+//     int count = (N > 1) ? N : 1;
+//     for (int i = 0; i < count; ++i) {
+//         std::string tensor_name = (N > 1) ? "out-" + layer->op_->name() + "-" + std::to_string(i) : "out-" + layer->op_->name();
+//         out_names.push_back(tensor_name);
+//     }
+//     return runOp(layer->op_, inputs, out_names, false);
+// }
 
 std::vector<Tensor> CPUBackend::runForward(Module *module, std::vector<Tensor> inputs, std::vector<std::any> args) {
     if (mllm::Module::llm_model_ptr && mllm::Module::llm_model_ptr->doLoad) {

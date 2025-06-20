@@ -117,7 +117,13 @@ protected:
         if (Backend::global_backends.size() == 2 && Backend::global_backends.find(MLLM_QNN) != Backend::global_backends.end()) {
             backend = Backend::global_backends[MLLM_QNN];
         }
-        return backend->runLayer(this, inputs, N);
+        vector<string> out_names;
+        int count = (N > 1) ? N : 1;
+        for (int i = 0; i < count; ++i) {
+            std::string tensor_name = (N > 1) ? "out-" + op_->name() + "-" + std::to_string(i) : "out-" + op_->name();
+            out_names.push_back(tensor_name);
+        }
+        return backend->runOp(op_, inputs, out_names, false);
     }
 
 public:
