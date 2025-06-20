@@ -20,8 +20,9 @@ private:
     Chl axis_;
 
 public:
-    CPUsumFunction(Backend *bn, string name, int threadCount, Chl axis)
-        : Op(bn, name), thread_count(threadCount), axis_(axis) {}
+    CPUsumFunction(Backend *bn, string name, int threadCount, Chl axis) :
+        Op(bn, name), thread_count(threadCount), axis_(axis) {
+    }
 
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         int batch = inputs[0]->batch();
@@ -56,8 +57,6 @@ public:
         int dim = inputs[0]->dimension();
         int seq = inputs[0]->sequence();
         int head = inputs[0]->head();
-        
-        // Note: OpenMP could be applied to the outer loops for better performance.
         switch (axis_) {
         case BATCH: {
             for (int h = 0; h < head; h++) {
@@ -106,7 +105,7 @@ public:
                 for (int h = 0; h < head; h++) {
                     for (int s = 0; s < seq; s++) {
                         float sum = 0.0f;
-                        for (int d = 0; d < dim; ++d) {
+                        for (int d = 0; d < inputs[0]->dimension(); ++d) {
                             sum += inputs[0]->dataAt<float>(n, h, s, d);
                         }
                         outputs[0]->setDataAt<float>(n, h, s, 0, sum);
@@ -125,7 +124,7 @@ public:
 class CPUsumFunctionCreator : public CPUBackend::Creator {
 public:
     virtual Op *create(OpParam op_param, Backend *bn, string name, int threadCount) const override {
-        Chl axis = (Chl)op_param.at("axis");
+        Chl axis = (Chl)op_param.at("dim");
         return new CPUsumFunction(bn, name, threadCount, axis);
     }
 };

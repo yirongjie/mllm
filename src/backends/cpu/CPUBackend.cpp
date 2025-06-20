@@ -98,7 +98,6 @@
 #include "op/CPUFuyuGatherEmbdFunc.hpp"
 #include "op/CPUPhi3VhdmergeFunc.hpp"
 
-
 // #include "function/CPUBinaryFunc.hpp"
 // #include "function/CPUCatFunc.hpp"
 // #include "function/CPUClipFunc.hpp"
@@ -224,7 +223,7 @@ void CPUBackend::registerOps() {
     addCreator(NTKROPE, (CPUBackend::Creator *)(new CPUNTKRoPECreator()));
     addCreator(HEADLINEAR, (CPUBackend::Creator *)(new CPUHeadLinearCreator()));
 
-    //funsction
+    // funsction
     addCreator(F_ADD, (CPUBackend::Creator *)(new CPUaddFunctionCreator()));
     addCreator(F_SUB, (CPUBackend::Creator *)(new CPUsubFunctionCreator()));
     addCreator(F_MUL, (CPUBackend::Creator *)(new CPUmulFunctionCreator()));
@@ -234,34 +233,33 @@ void CPUBackend::registerOps() {
     addCreator(F_TTSUB, (CPUBackend::Creator *)(new CPUsubTwoFunctionCreator()));
     addCreator(F_TTMUL, (CPUBackend::Creator *)(new CPUmulTwoFunctionCreator()));
     addCreator(F_TTDIV, (CPUBackend::Creator *)(new CPUdivTwoFunctionCreator()));
-    addCreator(F_MM,       (CPUBackend::Creator *)(new CPUmmFunctionCreator()));
-    addCreator(F_NORM,     (CPUBackend::Creator *)(new CPUnormFunctionCreator()));
-    addCreator(F_MEAN,     (CPUBackend::Creator *)(new CPUmeanFunctionCreator()));
-    addCreator(F_CAT,      (CPUBackend::Creator *)(new CPUcatFunctionCreator()));
-    addCreator(F_VIEW,     (CPUBackend::Creator *)(new CPUviewFunctionCreator()));
+    addCreator(F_MM, (CPUBackend::Creator *)(new CPUmmFunctionCreator()));
+    addCreator(F_NORM, (CPUBackend::Creator *)(new CPUnormFunctionCreator()));
+    addCreator(F_MEAN, (CPUBackend::Creator *)(new CPUmeanFunctionCreator()));
+    addCreator(F_CAT, (CPUBackend::Creator *)(new CPUcatFunctionCreator()));
+    addCreator(F_VIEW, (CPUBackend::Creator *)(new CPUviewFunctionCreator()));
     addCreator(F_TRANPOSE, (CPUBackend::Creator *)(new CPUtransposeFunctionCreator()));
-    addCreator(F_FLATTEN,  (CPUBackend::Creator *)(new CPUflattenFunctionCreator()));
-    addCreator(F_CLIP,     (CPUBackend::Creator *)(new CPUclipFunctionCreator()));
+    addCreator(F_FLATTEN, (CPUBackend::Creator *)(new CPUflattenFunctionCreator()));
+    addCreator(F_CLIP, (CPUBackend::Creator *)(new CPUclipFunctionCreator()));
     addCreator(F_CLIPAXIS, (CPUBackend::Creator *)(new CPUclipaxisFunctionCreator()));
     addCreator(F_CLIPTENSOR, (CPUBackend::Creator *)(new CPUcliptensorFunctionCreator()));
-    addCreator(F_RANGE,    (CPUBackend::Creator *)(new CPURangeFunctionCreator()));
-    addCreator(F_WHERE,    (CPUBackend::Creator *)(new CPUwhereFunctionCreator()));
+    addCreator(F_RANGE, (CPUBackend::Creator *)(new CPURangeFunctionCreator()));
+    addCreator(F_WHERE, (CPUBackend::Creator *)(new CPUwhereFunctionCreator()));
     addCreator(F_INDEX_PUT, (CPUBackend::Creator *)(new CPUIndexPutFunctionCreator()));
-    addCreator(F_SPLIT,    (CPUBackend::Creator *)(new CPUsplitFunctionCreator()));
-    addCreator(F_SUM,      (CPUBackend::Creator *)(new CPUsumFunctionCreator()));
-    addCreator(F_TOPK,     (CPUBackend::Creator *)(new CPUtopkFunctionCreator()));
-    addCreator(F_EXPPAND,  (CPUBackend::Creator *)(new CPUexpandFunctionCreator()));
-    addCreator(F_ARGSORT,  (CPUBackend::Creator *)(new CPUargsortFunctionCreator()));
+    addCreator(F_SPLIT, (CPUBackend::Creator *)(new CPUsplitFunctionCreator()));
+    addCreator(F_SUM, (CPUBackend::Creator *)(new CPUsumFunctionCreator()));
+    addCreator(F_TOPK, (CPUBackend::Creator *)(new CPUtopkFunctionCreator()));
+    addCreator(F_EXPPAND, (CPUBackend::Creator *)(new CPUexpandFunctionCreator()));
+    addCreator(F_ARGSORT, (CPUBackend::Creator *)(new CPUargsortFunctionCreator()));
     addCreator(F_BINCOUNT, (CPUBackend::Creator *)(new CPUbincountFunctionCreator()));
-    addCreator(F_REPEAT,   (CPUBackend::Creator *)(new CPUrepeatFunctionCreator()));
-    addCreator(F_LIKE,     (CPUBackend::Creator *)(new CPUlikeFunctionCreator()));
+    addCreator(F_REPEAT, (CPUBackend::Creator *)(new CPUrepeatFunctionCreator()));
+    addCreator(F_LIKE, (CPUBackend::Creator *)(new CPUlikeFunctionCreator()));
     addCreator(F_SCATTERREDUCE, (CPUBackend::Creator *)(new CPUScatterReduceFunctionCreator()));
     addCreator(F_APPLY_VISIOROPE, (CPUBackend::Creator *)(new CPUVisionRoPEFuncFunctionCreator()));
-    addCreator(F_FA2,      (CPUBackend::Creator *)(new CPUFlashAttention2FuncCreator()));
+    addCreator(F_FA2, (CPUBackend::Creator *)(new CPUFlashAttention2FuncCreator()));
     // models use only
     addCreator(F_FUYU_GATHER_EMBD, (CPUBackend::Creator *)(new CPUFuyuGatherEmbdFuncCreator()));
-    addCreator(F_PHI3V_HD_MERGE,   (CPUBackend::Creator *)(new CPUPhi3VhdmergeFunctionCreator()));
-
+    addCreator(F_PHI3V_HD_MERGE, (CPUBackend::Creator *)(new CPUPhi3VhdmergeFunctionCreator()));
 }
 TensorFunction *CPUBackend::funcCreate(const TensorFuncType type) {
     auto iter = map_function_.find(type);
@@ -272,7 +270,7 @@ TensorFunction *CPUBackend::funcCreate(const TensorFuncType type) {
     return iter->second;
 }
 
-void CPUBackend::registerFuncs() {
+void CPUBackend::registerFuncs(){
     // map_function_[TensorFuncType::FUNC_ADD] = new CPUaddFunction();
     // map_function_[TensorFuncType::FUNC_SUB] = new CPUsubFunction();
     // map_function_[TensorFuncType::FUNC_MUL] = new CPUmulFunction();
@@ -428,8 +426,8 @@ void CPUBackend::_create_output_tensors(
 //     return results;
 // }
 
-std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::vector<std::string> out_names, bool in_place){
-   Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
+std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::vector<std::string> out_names, bool in_place) {
+    Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
     map<string, shared_ptr<Tensor>> &activation_tensors = module->activation_tensors;
     if (module->doTrace) { // trace
         for (const auto &out_name : out_names) {
@@ -476,7 +474,7 @@ std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::v
     if (!in_place) {
         for (auto &out_tensor : out_tensors) {
             auto act_it = activation_tensors.find(out_tensor->name());
-            auto template_it = act_it != activation_tensors.end()? act_it->second:nullptr;
+            auto template_it = act_it != activation_tensors.end() ? act_it->second : nullptr;
             out_tensor->allocFromTemplate(template_it);
         }
     }
@@ -494,17 +492,17 @@ std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::v
     return results;
 }
 
-// std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> inputs, int N) {
-//     Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
-//     map<string, shared_ptr<Tensor>> &activation_tensors = module->activation_tensors;
-//     vector<string> out_names;
-//     int count = (N > 1) ? N : 1;
-//     for (int i = 0; i < count; ++i) {
-//         std::string tensor_name = (N > 1) ? "out-" + layer->op_->name() + "-" + std::to_string(i) : "out-" + layer->op_->name();
-//         out_names.push_back(tensor_name);
-//     }
-//     return runOp(layer->op_, inputs, out_names, false);
-// }
+std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> inputs, int N) {
+    Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
+    map<string, shared_ptr<Tensor>> &activation_tensors = module->activation_tensors;
+    vector<string> out_names;
+    int count = (N > 1) ? N : 1;
+    for (int i = 0; i < count; ++i) {
+        std::string tensor_name = (N > 1) ? "out-" + layer->op_->name() + "-" + std::to_string(i) : "out-" + layer->op_->name();
+        out_names.push_back(tensor_name);
+    }
+    return runOp(layer->op_, inputs, out_names, false);
+}
 
 std::vector<Tensor> CPUBackend::runForward(Module *module, std::vector<Tensor> inputs, std::vector<std::any> args) {
     if (mllm::Module::llm_model_ptr && mllm::Module::llm_model_ptr->doLoad) {

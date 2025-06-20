@@ -71,16 +71,15 @@ public:
      * @param in_place Whether to run the function in place.
      * @return std::vector<Tensor> The output tensors.
      */
-    virtual std::vector<Tensor> runFunc(
-        std::vector<std::string> out_names,
-        TensorFuncType type,
-        std::vector<float> float_args,
-        std::vector<Tensor> input_tensors,
-        bool in_place) = 0;
+    // virtual std::vector<Tensor> runFunc(
+    //     std::vector<std::string> out_names,
+    //     TensorFuncType type,
+    //     std::vector<float> float_args,
+    //     std::vector<Tensor> input_tensors,
+    //     bool in_place) = 0;
     virtual std::vector<Tensor> runLayer(Layer *layer, std::vector<Tensor> inputs, int N) = 0;
 
-    
-    virtual std::vector<Tensor> runOp(Op *op, std::vector<Tensor> input, std::vector<std::string> out_names, bool in_place) =0;
+    virtual std::vector<Tensor> runOp(Op *op, std::vector<Tensor> input, std::vector<std::string> out_names, bool in_place) = 0;
     virtual std::vector<Tensor> runForward(Module *module, std::vector<Tensor> inputs, std::vector<std::any> args) = 0;
 
     virtual void onSetUpStart(vector<shared_ptr<Tensor>> &inputs, vector<shared_ptr<Tensor>> &outputs, string graphName = ""){};

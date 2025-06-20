@@ -19,9 +19,10 @@ private:
     int thread_count = 4;
 
 public:
-    CPUScatterReduceFunction(Backend *bn, string name, int threadCount)
-        : Op(bn, name), thread_count(threadCount) {}
-    
+    CPUScatterReduceFunction(Backend *bn, string name, int threadCount) :
+        Op(bn, name), thread_count(threadCount) {
+    }
+
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         return MLLM_NO_ERROR;
     }

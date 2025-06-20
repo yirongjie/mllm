@@ -149,9 +149,9 @@ public:
 
         // go through model
         auto outputs = model({x})[0];
-        if (outputs.sequence() > 1) {
-            outputs = outputs.clip({}, {}, {-1}, {});
-        }
+        // if (outputs.sequence() > 1) {
+        //     outputs = outputs.clip({}, {}, {-1}, {});
+        // }
         if (tie_embedding_words) {
             outputs = Tensor::mm(outputs, lm_head().transpose(Chl::SEQUENCE, Chl::DIMENSION));
         } else {

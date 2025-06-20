@@ -19,9 +19,10 @@ private:
     int thread_count = 4;
 
 public:
-    CPUFuyuGatherEmbdFunc(Backend *bn, string name, int threadCount)
-        : Op(bn, name), thread_count(threadCount) {}
-    
+    CPUFuyuGatherEmbdFunc(Backend *bn, string name, int threadCount) :
+        Op(bn, name), thread_count(threadCount) {
+    }
+
     // 注意：保留 setUp 函数。
     // Op 的执行引擎(如 runLayer)也需要相应修改来调用此函数，才能使其中逻辑生效。
     ErrorCode setUp(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
@@ -40,13 +41,7 @@ public:
         assert(inputs[0]->head() == 1);
         assert(inputs[0]->dimension() == inputs[1]->dimension());
         assert(inputs[2]->dimension() == 1);
-        
-        // The original logic seems to imply the output shape is implicitly the same as input[0],
-        // with the actual memory handling done in setUp and execute.
-        // We will ensure the output tensor metadata is consistent.
-        outputs[0]->reshape(inputs[0]->batch(), inputs[0]->head(), inputs[0]->sequence(), inputs[0]->dimension());
-        outputs[0]->setDtype(inputs[0]->dtype());
-        
+
         return MLLM_NO_ERROR;
     }
 
@@ -59,14 +54,11 @@ public:
 
         auto input_indices = inputs[2];
         int hiddenSize = inputs[0]->dimension();
-        
-        // This operation writes into inputs[0], which, due to the setUp logic,
-        // is actually the memory buffer of outputs[0].
         for (int batch = 0; batch < inputs[0]->batch(); ++batch) {
             for (int seq = 0; seq < inputs[0]->sequence(); ++seq) {
                 if (input_indices->dataAt<float>(batch, 0, seq, 0) >= 0) {
-                    memcpy(inputs[0]->hostPtr<char>() + inputs[0]->offset(batch, 0, seq, 0),
-                           inputs[1]->hostPtr<char>() + (int)inputs[1]->offset(batch, 0, input_indices->dataAt<float>(batch, 0, seq, 0), 0),
+                    memcpy(inputs[0]->hostPtr<float>() + inputs[0]->offset(batch, 0, seq, 0),
+                           inputs[1]->hostPtr<float>() + (int)inputs[1]->offset(batch, 0, input_indices->dataAt<float>(batch, 0, seq, 0), 0),
                            inputs[1]->dtypeSize() * hiddenSize);
                 }
             }

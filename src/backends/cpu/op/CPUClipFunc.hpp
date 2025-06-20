@@ -24,18 +24,20 @@ private:
     std::vector<int> d_;
 
 public:
-    CPUclipFunction(Backend *bn, string name, int threadCount, 
-                    const std::vector<int>& b, const std::vector<int>& h, 
-                    const std::vector<int>& s, const std::vector<int>& d)
-        : Op(bn, name), thread_count(threadCount), b_(b), h_(h), s_(s), d_(d) {}
+    CPUclipFunction(Backend *bn, string name, int threadCount,
+                    const std::vector<int> &b, const std::vector<int> &h,
+                    const std::vector<int> &s, const std::vector<int> &d) :
+        Op(bn, name),
+        thread_count(threadCount), b_(b), h_(h), s_(s), d_(d) {
+    }
 
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         int dim_b = inputs[0]->batch();
         int dim_h = inputs[0]->head();
         int dim_s = inputs[0]->sequence();
         int dim_d = inputs[0]->dimension();
-        
-        std::vector<std::pair<const std::vector<int>*, int *>> data = {{&b_, &dim_b}, {&h_, &dim_h}, {&s_, &dim_s}, {&d_, &dim_d}};
+
+        std::vector<std::pair<const std::vector<int> *, int *>> data = {{&b_, &dim_b}, {&h_, &dim_h}, {&s_, &dim_s}, {&d_, &dim_d}};
         for (auto &pair : data) {
             if (pair.first->size() == 2) {
                 *pair.second = (*pair.first)[1] - (*pair.first)[0];
@@ -43,7 +45,7 @@ public:
                 *pair.second = 1;
             }
         }
-        
+
         outputs[0]->reshape(dim_b, dim_h, dim_s, dim_d);
         outputs[0]->setDtype(inputs[0]->dtype());
         return ErrorCode::MLLM_NO_ERROR;
@@ -143,13 +145,13 @@ public:
         int h_size = op_param.at("h_size");
         int s_size = op_param.at("s_size");
         int d_size = op_param.at("d_size");
-        
+
         std::vector<int> b, h, s, d;
-        for(int i=0; i<b_size; ++i) b.push_back(op_param.at("b_" + std::to_string(i)));
-        for(int i=0; i<h_size; ++i) h.push_back(op_param.at("h_" + std::to_string(i)));
-        for(int i=0; i<s_size; ++i) s.push_back(op_param.at("s_" + std::to_string(i)));
-        for(int i=0; i<d_size; ++i) d.push_back(op_param.at("d_" + std::to_string(i)));
-        
+        for (int i = 0; i < b_size; ++i) b.push_back(op_param.at("b_" + std::to_string(i)));
+        for (int i = 0; i < h_size; ++i) h.push_back(op_param.at("h_" + std::to_string(i)));
+        for (int i = 0; i < s_size; ++i) s.push_back(op_param.at("s_" + std::to_string(i)));
+        for (int i = 0; i < d_size; ++i) d.push_back(op_param.at("d_" + std::to_string(i)));
+
         return new CPUclipFunction(bn, name, threadCount, b, h, s, d);
     }
 };
@@ -165,9 +167,11 @@ private:
 
 public:
     CPUclipaxisFunction(Backend *bn, string name, int threadCount, Chl axis,
-                        const std::vector<int>& b, const std::vector<int>& h, 
-                        const std::vector<int>& s, const std::vector<int>& d)
-        : Op(bn, name), thread_count(threadCount), axis_(axis), b_(b), h_(h), s_(s), d_(d) {}
+                        const std::vector<int> &b, const std::vector<int> &h,
+                        const std::vector<int> &s, const std::vector<int> &d) :
+        Op(bn, name),
+        thread_count(threadCount), axis_(axis), b_(b), h_(h), s_(s), d_(d) {
+    }
 
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         int dim_b = inputs[0]->batch();
@@ -176,30 +180,43 @@ public:
         int dim_d = inputs[0]->dimension();
         switch (axis_) {
         case BATCH: {
-            if (!h_.empty()) dim_h = 1;
-            if (!s_.empty()) dim_s = 1;
-            if (!d_.empty()) dim_d = 1;
+            std::vector<std::pair<std::vector<int>, int *>> data = {{h_, &dim_h}, {s_, &dim_s}, {d_, &dim_d}};
+            for (auto &pair : data) {
+                if (!pair.first.empty()) {
+                    *pair.second = 1;
+                }
+            }
             break;
         }
         case HEAD: {
-            if (!b_.empty()) dim_b = 1;
-            if (!s_.empty()) dim_s = 1;
-            if (!d_.empty()) dim_d = 1;
+            std::vector<std::pair<std::vector<int>, int *>> data = {{b_, &dim_b}, {s_, &dim_s}, {d_, &dim_d}};
+            for (auto &pair : data) {
+                if (!pair.first.empty()) {
+                    *pair.second = 1;
+                }
+            }
             break;
         }
         case SEQUENCE: {
-            if (!b_.empty()) dim_b = 1;
-            if (!h_.empty()) dim_h = 1;
-            if (!d_.empty()) dim_d = 1;
+            std::vector<std::pair<std::vector<int>, int *>> data = {{b_, &dim_b}, {h_, &dim_h}, {d_, &dim_d}};
+            for (auto &pair : data) {
+                if (!pair.first.empty()) {
+                    *pair.second = 1;
+                }
+            }
             break;
         }
         case DIMENSION: {
-            if (!b_.empty()) dim_b = 1;
-            if (!h_.empty()) dim_h = 1;
-            if (!s_.empty()) dim_s = 1;
+            std::vector<std::pair<std::vector<int>, int *>> data = {{b_, &dim_b}, {h_, &dim_h}, {s_, &dim_s}};
+            for (auto &pair : data) {
+                if (!pair.first.empty()) {
+                    *pair.second = 1;
+                }
+            }
             break;
         }
-        default: break;
+        default:
+            break;
         }
         outputs[0]->reshape(dim_b, dim_h, dim_s, dim_d);
         outputs[0]->setDtype(inputs[0]->dtype());
@@ -230,17 +247,16 @@ public:
         int h_size = op_param.count("h_size") ? op_param.at("h_size") : 0;
         int s_size = op_param.count("s_size") ? op_param.at("s_size") : 0;
         int d_size = op_param.count("d_size") ? op_param.at("d_size") : 0;
-        
+
         std::vector<int> b, h, s, d;
-        for(int i=0; i<b_size; ++i) b.push_back(op_param.at("b_" + std::to_string(i)));
-        for(int i=0; i<h_size; ++i) h.push_back(op_param.at("h_" + std::to_string(i)));
-        for(int i=0; i<s_size; ++i) s.push_back(op_param.at("s_" + std::to_string(i)));
-        for(int i=0; i<d_size; ++i) d.push_back(op_param.at("d_" + std::to_string(i)));
+        for (int i = 0; i < b_size; ++i) b.push_back(op_param.at("b_" + std::to_string(i)));
+        for (int i = 0; i < h_size; ++i) h.push_back(op_param.at("h_" + std::to_string(i)));
+        for (int i = 0; i < s_size; ++i) s.push_back(op_param.at("s_" + std::to_string(i)));
+        for (int i = 0; i < d_size; ++i) d.push_back(op_param.at("d_" + std::to_string(i)));
 
         return new CPUclipaxisFunction(bn, name, threadCount, axis, b, h, s, d);
     }
 };
-
 
 class CPUcliptensorFunction : public Op {
 private:
@@ -248,8 +264,9 @@ private:
     Chl dim_;
 
 public:
-    CPUcliptensorFunction(Backend* bn, string name, int threadCount, Chl dim)
-        : Op(bn, name), thread_count(threadCount), dim_(dim) {}
+    CPUcliptensorFunction(Backend *bn, string name, int threadCount, Chl dim) :
+        Op(bn, name), thread_count(threadCount), dim_(dim) {
+    }
 
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         if (dim_ == SEQUENCE) {
@@ -270,28 +287,51 @@ public:
             if (inputs[0]->ctype() == BHDS) {
                 outputs[0]->chls() = inputs[0]->chls();
                 outputs[0]->setCtype(BHDS);
-            }
-            #pragma omp parallel for collapse(2) num_threads(thread_count)
-            for (int b = 0; b < inputs[0]->batch(); ++b) {
-                for (int s = 0; s < outputs[0]->sequence(); ++s) {
-                    auto selected_idx = (int)inputs[1]->dataAt<float>(0, 0, 0, s);
-                     if (inputs[0]->ctype() == BSHD) {
-                        memcpy(outputs[0]->ptrAt<char>(b, 0, s, 0),
-                               inputs[0]->ptrAt<char>(b, 0, selected_idx, 0),
-                               inputs[0]->head() * inputs[0]->dimension() * sizeof(float));
-                    } else { // BHDS, copy element by element for this layout
-                        for (int d = 0; d < inputs[0]->dimension(); ++d) {
-                             outputs[0]->setDataAt<float>(b, 0, s, d,
+                int new_seq = inputs[1]->dimension();
+                if (outputs[0]->sequence() == 0 || outputs[0]->shape().empty()
+                    || new_seq != outputs[0]->sequence()) {
+                    outputs[0]->reshape(inputs[0]->batch(), inputs[0]->head(), new_seq, inputs[0]->dimension());
+                    outputs[0]->alloc();
+                }
+
+#pragma omp parallel for collapse(3) num_threads(CPUBackend::cpu_threads)
+                for (int b = 0; b < inputs[0]->batch(); ++b) {
+                    for (int d = 0; d < inputs[0]->dimension(); ++d) {
+                        for (int s = 0; s < new_seq; ++s) {
+                            auto selected_idx = (int)inputs[1]->dataAt<float>(0, 0, 0, s);
+                            outputs[0]->setDataAt<float>(b, 0, s, d,
                                                          inputs[0]->dataAt<float>(b, 0, selected_idx, d));
                         }
                     }
                 }
+                return MLLM_NO_ERROR;
+            }
+            int new_seq = inputs[1]->dimension();
+            if (outputs[0]->sequence() == 0 || outputs[0]->shape().empty()
+                || new_seq != outputs[0]->sequence()) {
+                outputs[0]->reshape(inputs[0]->batch(), inputs[0]->head(), new_seq, inputs[0]->dimension());
+                outputs[0]->alloc();
+            }
+#pragma omp parallel for collapse(2) num_threads(CPUBackend::cpu_threads)
+            for (int b = 0; b < inputs[0]->batch(); ++b) {
+                for (int s = 0; s < inputs[1]->dimension(); ++s) {
+                    auto selected_idx = (int)inputs[1]->dataAt<float>(0, 0, 0, s);
+                    memcpy(outputs[0]->ptrAt<float>(b, 0, s, 0),
+                           inputs[0]->ptrAt<float>(b, 0, selected_idx, 0),
+                           inputs[0]->head() * inputs[0]->dimension() * sizeof(float));
+                }
             }
         } else if (dim_ == DIMENSION) {
-            #pragma omp parallel for collapse(3) num_threads(thread_count)
+            int new_seq = inputs[1]->dimension();
+            if (outputs[0]->sequence() == 0 || outputs[0]->shape().empty()
+                || new_seq != outputs[0]->sequence()) {
+                outputs[0]->reshape(inputs[0]->batch(), inputs[0]->head(), inputs[0]->sequence(), new_seq);
+                outputs[0]->alloc();
+            }
+#pragma omp parallel for collapse(3) num_threads(CPUBackend::cpu_threads)
             for (int b = 0; b < inputs[0]->batch(); ++b) {
                 for (int s = 0; s < inputs[0]->sequence(); ++s) {
-                    for (int d = 0; d < outputs[0]->dimension(); ++d) {
+                    for (int d = 0; d < inputs[1]->dimension(); ++d) {
                         auto selected_idx = (int)inputs[1]->dataAt<float>(0, 0, 0, d);
                         outputs[0]->setDataAt<float>(b, 0, s, d,
                                                      inputs[0]->dataAt<float>(b, 0, s, selected_idx));
@@ -299,7 +339,7 @@ public:
                 }
             }
         } else {
-            std::cout << "[TODO]Tensor.CLip tensor not support!!!!" << std::endl;
+            std::cout << "[TODO]Tensor.CLip not support!!!!" << std::endl;
         }
         return ErrorCode::MLLM_NO_ERROR;
     }
