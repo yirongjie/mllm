@@ -294,12 +294,12 @@ std::vector<Tensor> CPUBackend::runFunc(
     std::vector<std::string> out_names,
     TensorFuncType type,
     std::vector<float> float_args,
-    std::vector<std::shared_ptr<Tensor>> input_tensors,
+    std::vector<Tensor> inputs,
     bool in_place) {
-    Module *module = input_tensors.empty() ? Module::llm_model_ptr : input_tensors[0]->module();
+    Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
     auto &activation_tensors = module->activation_tensors;
     assert(module != nullptr);
-    Backend *backend = input_tensors.empty() ? Backend::global_backends[MLLM_CPU] : input_tensors[0]->backend();
+    Backend *backend = inputs.empty() ? Backend::global_backends[MLLM_CPU] : inputs[0].backend();
     TensorFunction *func = backend->funcCreate(type);
     if (module->doTrace) { // trace
         for (const auto &out_name : out_names) {
@@ -310,7 +310,10 @@ std::vector<Tensor> CPUBackend::runFunc(
             }
         }
         std::vector<std::shared_ptr<Tensor>> inPtrs;
-        for (auto &t : input_tensors) inPtrs.push_back(activation_tensors[t->name()]);
+        for (auto &input : inputs) {
+            inPtrs.push_back(input.shouldInGraphs() ? activation_tensors[input.name()] :
+                                                      std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
+        }
         std::vector<std::shared_ptr<Tensor>> outPtrs;
         for (auto &name : out_names) outPtrs.push_back(activation_tensors[name]);
         func->setUp(outPtrs, inPtrs, float_args);
@@ -321,6 +324,10 @@ std::vector<Tensor> CPUBackend::runFunc(
 #ifdef DEBUGOPTIME
     auto start_t = mllm_time_us();
 #endif
+    vector<shared_ptr<Tensor>> input_tensors;
+    for (auto &input : inputs) {
+        input_tensors.push_back(std::shared_ptr<Tensor>(&input, [](Tensor *) {}));
+    }
     std::vector<std::shared_ptr<Tensor>> out_tensors;
     // Part 1: Create tensor shells (but don't allocate yet)
     if (!in_place) {

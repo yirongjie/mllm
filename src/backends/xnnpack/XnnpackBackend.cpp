@@ -683,9 +683,9 @@ bool XnnpackBackend::enable_legacy_wrapper = false;
 std::vector<Tensor> XnnpackBackend::runFunc(std::vector<std::string> out_names,
                                         TensorFuncType type,
                                         std::vector<float> float_args,
-                                        std::vector<std::shared_ptr<Tensor>> input_tensors,
+                                        std::vector<Tensor> input_tensors,
                                         bool in_place) {
-    Module *module = input_tensors.empty() ? mllm::Module::llm_model_ptr : input_tensors[0]->module();
+    Module *module = input_tensors.empty() ? mllm::Module::llm_model_ptr : input_tensors[0].module();
     assert(module != nullptr);
     auto &activation_tensors = module->activation_tensors;
     auto &activation_tensors_num = module->activation_tensors_num;
@@ -695,7 +695,7 @@ std::vector<Tensor> XnnpackBackend::runFunc(std::vector<std::string> out_names,
         if (activation_tensors.find(out_name) == activation_tensors.end()) {
             Backend *backend_h = Backend::global_backends[MLLM_CPU];
             if (!input_tensors.empty()) {
-                backend_h = input_tensors[0]->backend();
+                backend_h = input_tensors[0].backend();
             }
             activation_tensors[out_name] = std::make_shared<Tensor>(backend_h);
             activation_tensors[out_name]->setName(out_name);
@@ -715,17 +715,17 @@ std::vector<Tensor> XnnpackBackend::runFunc(std::vector<std::string> out_names,
 
     Backend *backend_h = Backend::global_backends[MLLM_CPU];
     if (!input_tensors.empty()) {
-        backend_h = input_tensors[0]->backend();
+        backend_h = input_tensors[0].backend();
     }
     TensorFunction *func = backend_h->funcCreate(type);
 
     std::vector<std::shared_ptr<Tensor>> input_ptrs;
     for (auto &tensor : input_tensors) {
-        input_ptrs.push_back(activation_tensors[tensor->name()]);
+        input_ptrs.push_back(activation_tensors[tensor.name()]);
     }
     // if (in_place) {
     //     for (size_t i = 0; i < input_tensors.size() && i < out_names.size(); ++i) {
-    //         input_tensors[i]->setName(out_names[i]);
+    //         input_tensors[i].setName(out_names[i]);
     //         output_ptrs.push_back(input_tensors[i]);
     //     }
     // }

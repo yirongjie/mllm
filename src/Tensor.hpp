@@ -1543,7 +1543,7 @@ private:
     static std::vector<Tensor> runFunc(std::vector<std::string> out_names,
                                        TensorFuncType type,
                                        std::vector<float> float_args,
-                                       std::vector<std::shared_ptr<Tensor>> input_tensors = {},
+                                       std::vector<Tensor> input_tensors = {},
                                        bool in_place = false);
 
 public:
