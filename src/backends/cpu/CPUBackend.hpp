@@ -123,24 +123,6 @@ private:
         Module *module,
         map<std::string, std::shared_ptr<Tensor>> &activation_tensors,
         Backend *backend);
-    /**
-     * @brief Handles the allocation and setup for an output tensor that is part of an aggregated tensor structure.
-     */
-    void _allocate_final_tensor(
-        std::shared_ptr<Tensor> &tensor,
-        const std::shared_ptr<Tensor> &template_tensor,
-        bool has_template_tensor,
-        Backend *backend);
-    void _allocate_aggregated_tensor(
-        std::shared_ptr<Tensor> &out_tensor,
-        const std::shared_ptr<Tensor> &template_tensor,
-        Module *module,
-        Backend *backend);
-    void _allocate_output_tensors(
-        std::vector<std::shared_ptr<Tensor>> &out_tensors,
-        Module *module,
-        map<std::string, std::shared_ptr<Tensor>> &activation_tensors,
-        Backend *backend);
 };
 
 } // namespace mllm

@@ -1164,6 +1164,19 @@ public:
     static void reshapeAllocCrossBn(Tensor &src_t, Tensor &dst_t);
     static void copyDataCrossBn(Tensor &src_t, Tensor &dst_t);
 
+public:
+    void allocFromTemplate(shared_ptr<Tensor> template_tensor);
+
+private:
+    void _allocate_final_tensor(
+        const std::shared_ptr<Tensor> &template_tensor,
+        Backend *backend);
+    void _allocate_aggregated_tensor(
+        const std::shared_ptr<Tensor> &template_tensor,
+        Module *module,
+        Backend *backend);
+public:
+
     /* Functions used for 5-D Tensor:
      * - reshape
      * - channel

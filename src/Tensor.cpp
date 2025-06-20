@@ -183,7 +183,127 @@ Tensor &Tensor::to(BackendType backend_type) {
     return *this;
 };
 
-// TensorFuctions
+
+
+bool is_kvcached_tensor(const std::shared_ptr<Tensor> &tensor) {
+    return tensor!= nullptr &&tensor->masterTensor() != nullptr && tensor->masterTensor()->name().find("Cache") != std::string::npos;
+}
+
+/**
+ * @brief Allocates a single, non-aggregated tensor, deciding between KVCache or standard allocation.
+ * @param module The current module.
+ * @param backend The current backend.
+ * @param standard_alloc_func The function to call for standard allocation.
+ */
+void Tensor::_allocate_final_tensor(
+    const std::shared_ptr<Tensor> &template_tensor,
+    Backend *backend) {
+    if (is_kvcached_tensor(template_tensor)) {
+        // It's a KVCache view
+        auto master_tensor = template_tensor->masterTensor();
+        auto cache_seq_len_ = template_tensor->shapeOffset()[2];
+        // If this tensor is an input to a KVCache operation, adjust sequence length based on draft tokens
+        if (name().find("cache") == std::string::npos) {
+            cache_seq_len_ = master_tensor->cache_seq_len_;
+            auto cpu_backend = dynamic_cast<CPUBackend *>(backend);
+            if (cpu_backend->isUsingDraft()) {
+                unsigned int last_draft_length = cpu_backend->getLastDraftLength();
+                const auto &last_verified_position_ids = cpu_backend->getLastVerifiedPositionIds();
+                cache_seq_len_ = cache_seq_len_ - last_draft_length + last_verified_position_ids.size();
+            }
+        }
+        setDtype(master_tensor->dtype());
+        shallowCopyFrom(master_tensor, false, {0, 0, cache_seq_len_, 0});
+    }else {
+        alloc();
+    }
+}
+/**
+ * @brief Handles the allocation and setup for an output tensor that is part of an aggregated tensor structure.
+ * @param template_tensor The corresponding tensor from the activation map, which holds aggregation info.
+ * @param module The current module.
+ * @param backend The current backend.
+ */
+void Tensor::_allocate_aggregated_tensor(
+    const std::shared_ptr<Tensor> &template_tensor,
+    Module *module,
+    Backend *backend) {
+    bool keep_aggregated_structure = false;
+    if (template_tensor->aggregatedDim() > 3) {
+        keep_aggregated_structure = true; // Cannot handle dimensions > 3
+    } else {
+        for (const auto &ag_tensor : template_tensor->aggregatedTensors()) {
+            if (ag_tensor->ctype() != template_tensor->aggregatedTensors()[0]->ctype() || is_kvcached_tensor(ag_tensor)) {
+                keep_aggregated_structure = true;
+                break;
+            }
+        }
+    }
+    if (keep_aggregated_structure) {
+        vector<shared_ptr<Tensor>> shared_outputs;
+        auto split_dim = template_tensor->aggregatedDim();
+        const auto &ag_tensor = template_tensor->aggregatedTensors();
+        for (int id = 0; id < ag_tensor.size(); ++id) {
+            const auto &child_tt = ag_tensor[id];
+            auto shared_ot = std::make_shared<Tensor>(backend);
+            // shared_ot->setName(out_tensor->name() + ".split-" + std::to_string(id));
+            assert(child_tt->name() == name() + ".split-" + std::to_string(id));
+            shared_ot->setName(child_tt->name());
+            shared_ot->setModule(module);
+            shared_ot->setCtype(child_tt->ctype());
+            // Reshape based on the split dimension and the template tensor
+            switch (split_dim) {
+            case Chl::HEAD:
+                shared_ot->reshape(batch(), child_tt->head(), sequence(), dimension());
+                break;
+            case Chl::SEQUENCE:
+                shared_ot->reshape(this->batch(), head(), child_tt->sequence(), dimension());
+                break;
+            case Chl::DIMENSION:
+                shared_ot->reshape(batch(), head(), sequence(), child_tt->dimension());
+                break;
+            case Chl::D_HD:
+            case Chl::HD:
+                shared_ot->reshape(batch(), child_tt->head(), sequence(), child_tt->dimension());
+                break;
+            default:
+                break; // Should not happen
+            }
+            shared_ot->_allocate_final_tensor(child_tt, backend); 
+            shared_outputs.push_back(shared_ot);
+        }
+        addTensors(shared_outputs, split_dim);
+    } else {
+        allowAggregated() = false;
+        alloc();
+    }
+}
+
+/**
+ * @brief Allocates memory for a tensor based on a template tensor.
+ * If the template tensor is aggregated, it allocates an aggregated tensor.
+ * Otherwise, it allocates a final tensor.
+ * @param template_tensor The template tensor to base the allocation on.
+ */
+void Tensor::allocFromTemplate(shared_ptr<Tensor> template_tensor){
+    assert(module() != nullptr);
+    assert(backend() != nullptr);
+    if (template_tensor!= nullptr && !template_tensor->aggregatedTensors().empty()) {
+        _allocate_aggregated_tensor(template_tensor, module(), backend());
+    } else {
+        _allocate_final_tensor(template_tensor, backend());
+    }
+}
+
+/**
+    * @brief Runs a tensor function with the specified parameters.
+    * @param out_names The names of the output tensors.
+    * @param type The type of the tensor function to run.
+    * @param float_args A vector of float arguments for the function.
+    * @param input_tensors A vector of input tensors to the function.
+    * @param in_place If true, the function modifies the input tensor in place.
+    * @return A vector of output tensors after running the function.
+ */
 std::vector<Tensor> Tensor::runFunc(std::vector<std::string> out_names,
                                     TensorFuncType type,
                                     std::vector<float> float_args,
