@@ -5,7 +5,7 @@
 #ifndef POOLING_HPP
 #define POOLING_HPP
 
-#include "VecDot.hpp"
+#include "backends/cpu/third_party/ggml/VecDot.hpp"
 using namespace mllm;
 
 void avgpool2d_fp32_VALID(Tensor *input, Tensor *output, int kernel_h, int kernel_w, int stride_h, int stride_w, int thread_count = 4);

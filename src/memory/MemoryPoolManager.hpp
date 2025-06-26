@@ -14,8 +14,9 @@ namespace mllm {
 class MemoryPoolManager : public MemoryManager {
 private:
     struct Header {
-        void *raw_ptr; // 新增原始指针
-        size_t size;
+        void *raw_ptr;  // 系统分配时的原始指针
+        size_t size;    // 用户请求的大小
+        size_t padding; // 为对齐产生的填充大小
         bool is_sys;
     };
 
@@ -50,18 +51,19 @@ private:
         uintptr_t base = reinterpret_cast<uintptr_t>(raw) + sizeof(Header);
         uintptr_t aligned = (base + alignment - 1) & ~(alignment - 1);
         Header *hdr = reinterpret_cast<Header *>(aligned - sizeof(Header));
-        hdr->raw_ptr = raw; // 记录原始指针
+        hdr->raw_ptr = raw;
         hdr->size = size;
         hdr->is_sys = true;
+        hdr->padding = 0;
         *ptr = reinterpret_cast<void *>(aligned);
     }
 
     void sys_free(void *ptr) {
         if (!ptr) return;
         uintptr_t user_ptr = reinterpret_cast<uintptr_t>(ptr);
-        Header *hdr = reinterpret_cast<Header *>(user_ptr - sizeof(Header)); // 找到Header
+        Header *hdr = reinterpret_cast<Header *>(user_ptr - sizeof(Header));
 #if defined(_WIN32)
-        _aligned_free(hdr->raw_ptr); // 释放原始指针
+        _aligned_free(hdr->raw_ptr);
 #else
         std::free(hdr->raw_ptr);
 #endif
@@ -107,14 +109,19 @@ private:
         else
             free_head_ = blk;
         if (cur) cur->prev = blk;
+
         // 向前合并
         if (blk->prev && blk->prev->addr + blk->prev->size == blk->addr) {
-            blk->prev->size += blk->size;
-            blk->prev->next = blk->next;
-            if (blk->next) blk->next->prev = blk->prev;
+            Block *prev_block = blk->prev; // 在delete之前，安全地缓存 prev 指针
+            prev_block->size += blk->size;
+            prev_block->next = blk->next;
+            if (blk->next) {
+                blk->next->prev = prev_block;
+            }
             delete blk;
-            blk = blk->prev;
+            blk = prev_block; // 使用缓存的、安全的指针进行赋值
         }
+
         // 向后合并
         if (blk->next && blk->addr + blk->size == blk->next->addr) {
             blk->size += blk->next->size;
@@ -140,7 +147,7 @@ public:
 #else
             std::free(reinterpret_cast<void *>(b->addr));
 #endif
-            delete b; // 释放 Block 对象
+            delete b;
             b = next;
         }
     }
@@ -148,33 +155,39 @@ public:
     void alloc(void **ptr, size_t size, size_t alignment) override {
         assert(size > 0);
         std::lock_guard<std::mutex> lg(mutex_);
-        size_t req = size + sizeof(Header);
-        // 大块走系统
-        if (req > pool_size_ * LARGE_RATIO) {
+
+        size_t req_total = size + sizeof(Header);
+
+        if (req_total > pool_size_ * LARGE_RATIO) {
             sys_alloc(ptr, size, alignment);
             return;
         }
-        // 小块服务，需要空间时线性扩容
-        if (total_free() < req || total_free() < pool_size_ * POOL_THRESHOLD) {
-            expand(req);
+        if (total_free() < req_total || total_free() < pool_size_ * POOL_THRESHOLD) {
+            expand(req_total);
         }
-        // 首适应分配
+
         for (auto *b = free_head_; b; b = b->next) {
             uintptr_t start = b->addr;
             uintptr_t base = start + sizeof(Header);
             uintptr_t aligned = (base + alignment - 1) & ~(alignment - 1);
+
             size_t padding = aligned - start - sizeof(Header);
-            if (b->size >= padding + req) {
+            size_t total_consumed = req_total + padding;
+
+            if (b->size >= total_consumed) {
                 uintptr_t user = aligned;
                 auto *hdr = reinterpret_cast<Header *>(user - sizeof(Header));
+
+                hdr->raw_ptr = nullptr;
                 hdr->size = size;
                 hdr->is_sys = false;
+                hdr->padding = padding;
+
                 *ptr = reinterpret_cast<void *>(user);
-                // 更新块
-                uintptr_t next = user + size;
-                size_t remain = b->size - (padding + req);
+
+                size_t remain = b->size - total_consumed;
                 if (remain > sizeof(Header)) {
-                    b->addr = next;
+                    b->addr = start + total_consumed;
                     b->size = remain;
                 } else {
                     if (b->prev)
@@ -187,16 +200,19 @@ public:
                 return;
             }
         }
-        // 再回退系统
         sys_alloc(ptr, size, alignment);
     }
 
     void free(void *ptr) override {
         if (!ptr) return;
         std::lock_guard<std::mutex> lg(mutex_);
+
         auto *hdr = hdr_of(ptr);
+
         if (!hdr->is_sys) {
-            insert_block(reinterpret_cast<uintptr_t>(hdr), hdr->size + sizeof(Header));
+            uintptr_t block_start = reinterpret_cast<uintptr_t>(ptr) - sizeof(Header) - hdr->padding;
+            size_t block_size = hdr->size + sizeof(Header) + hdr->padding;
+            insert_block(block_start, block_size);
         } else {
             sys_free(ptr);
         }

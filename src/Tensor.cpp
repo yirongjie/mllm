@@ -184,7 +184,7 @@ Tensor &Tensor::to(BackendType backend_type) {
         this->setBackend(Backend::global_backends[backend_type]);
         return *this;
     }
-    Backend* target_backend = Backend::global_backends[backend_type];
+    Backend *target_backend = Backend::global_backends[backend_type];
     if (target_backend == nullptr) {
         Module::initBackend(backend_type);
         target_backend = Backend::global_backends[backend_type];
@@ -197,10 +197,8 @@ Tensor &Tensor::to(BackendType backend_type) {
     return *this;
 };
 
-
-
 bool is_kvcached_tensor(const std::shared_ptr<Tensor> &tensor) {
-    return tensor!= nullptr &&tensor->masterTensor() != nullptr && tensor->masterTensor()->name().find("Cache") != std::string::npos;
+    return tensor != nullptr && tensor->masterTensor() != nullptr && tensor->masterTensor()->name().find("Cache") != std::string::npos;
 }
 
 /**
@@ -228,13 +226,12 @@ void Tensor::_allocate_final_tensor(
         }
         setDtype(master_tensor->dtype());
         shallowCopyFrom(master_tensor, false, {0, 0, cache_seq_len_, 0});
-    // } else if (template_tensor!= nullptr &&template_tensor->masterTensor() != nullptr) {
-    //      auto master_tensor = template_tensor->masterTensor();
-    //     auto cache_seq_len_ = template_tensor->shapeOffset();
-    //     setDtype(master_tensor->dtype());
-    //     shallowCopyFrom(master_tensor, false, cache_seq_len_);
-    }
-    else {
+        // } else if (template_tensor!= nullptr &&template_tensor->masterTensor() != nullptr) {
+        //      auto master_tensor = template_tensor->masterTensor();
+        //     auto cache_seq_len_ = template_tensor->shapeOffset();
+        //     setDtype(master_tensor->dtype());
+        //     shallowCopyFrom(master_tensor, false, cache_seq_len_);
+    } else {
         alloc();
     }
 }
@@ -253,7 +250,7 @@ void Tensor::_allocate_aggregated_tensor(
         keep_aggregated_structure = true; // Cannot handle dimensions > 3
     } else {
         for (const auto &ag_tensor : template_tensor->aggregatedTensors()) {
-            if (ag_tensor->ctype() != template_tensor->aggregatedTensors()[0]->ctype() || is_kvcached_tensor(ag_tensor)) {
+            if (ag_tensor->ctype() != template_tensor->aggregatedTensors()[0]->ctype()) { //???我什么这么写？因为quant
                 keep_aggregated_structure = true;
                 break;
             }
@@ -289,7 +286,7 @@ void Tensor::_allocate_aggregated_tensor(
             default:
                 break; // Should not happen
             }
-            shared_ot->_allocate_final_tensor(child_tt, backend); 
+            shared_ot->_allocate_final_tensor(child_tt, backend);
             shared_outputs.push_back(shared_ot);
         }
         addTensors(shared_outputs, split_dim);
@@ -305,9 +302,9 @@ void Tensor::_allocate_aggregated_tensor(
  * Otherwise, it allocates a final tensor.
  * @param template_tensor The template tensor to base the allocation on.
  */
-void Tensor::allocFromTemplate(shared_ptr<Tensor> template_tensor){
+void Tensor::allocFromTemplate(shared_ptr<Tensor> template_tensor) {
     assert(backend() != nullptr);
-    if (template_tensor!= nullptr && !template_tensor->aggregatedTensors().empty()) {
+    if (template_tensor != nullptr && !template_tensor->aggregatedTensors().empty()) {
         _allocate_aggregated_tensor(template_tensor, module(), backend());
     } else {
         _allocate_final_tensor(template_tensor, backend());
@@ -315,19 +312,19 @@ void Tensor::allocFromTemplate(shared_ptr<Tensor> template_tensor){
 }
 
 /**
-    * @brief Runs a tensor function with the specified parameters.
-    * @param out_names The names for the output tensors.
-    * @param type The type of the tensor function to run.   
-    * @param param The parameters for the tensor function.
-    * @param input_tensors The input tensors to the function.
-    * @param in_place Whether to run the function in-place.
-    * @return A vector of output tensors.
+ * @brief Runs a tensor function with the specified parameters.
+ * @param out_names The names for the output tensors.
+ * @param type The type of the tensor function to run.
+ * @param param The parameters for the tensor function.
+ * @param input_tensors The input tensors to the function.
+ * @param in_place Whether to run the function in-place.
+ * @return A vector of output tensors.
  */
 std::vector<Tensor> Tensor::runFunc(std::vector<std::string> out_names,
-                                       OpType type,
-                                       OpParam param,
-                                       std::vector<Tensor> input_tensors,
-                                       bool in_place) {
+                                    OpType type,
+                                    OpParam param,
+                                    std::vector<Tensor> input_tensors,
+                                    bool in_place) {
     auto backend = input_tensors.empty() ? Backend::global_backends[MLLM_CPU] : input_tensors[0].backend();
     if (Backend::global_backends.size() == 2 && Backend::global_backends.find(MLLM_QNN) != Backend::global_backends.end()) {
         backend = Backend::global_backends[MLLM_QNN];
@@ -381,22 +378,22 @@ Tensor Tensor::operator/(int data) {
 
 Tensor Tensor::operator+(Tensor other) {
     return runFunc({name() + "-TTadd"}, F_TTADD, {},
-                   {*this,other})[0];
+                   {*this, other})[0];
 }
 
 Tensor Tensor::operator-(Tensor other) {
     return runFunc({name() + "-TTsub"}, F_TTSUB, {},
-                   {*this,other})[0];
+                   {*this, other})[0];
 }
 
 Tensor Tensor::operator*(Tensor other) {
     return runFunc({name() + "-TTmul"}, F_TTMUL, {},
-                   {*this,other})[0];
+                   {*this, other})[0];
 }
 
 Tensor Tensor::operator/(Tensor other) {
     return runFunc({name() + "-TTdiv"}, F_TTDIV, {},
-                   {*this,other})[0];
+                   {*this, other})[0];
 }
 
 Tensor Tensor::mean(Chl axis) {
@@ -431,13 +428,11 @@ Tensor Tensor::transpose(vector<std::pair<Chl, Chl>> axiss) {
     for (auto &axis : axiss) {
         param["axis1_" + std::to_string(idx)] = (float)axis.first;
         param["axis2_" + std::to_string(idx)] = (float)axis.second;
-        idx ++;
+        idx++;
     }
-    bool in_place = (master_tensor_ == nullptr) || 
-                    (master_tensor_->name().find("Cache") == std::string::npos &&
-                     master_tensor_->name().find("weight") != std::string::npos);
+    bool in_place = (master_tensor_ == nullptr) || (master_tensor_->name().find("Cache") == std::string::npos && master_tensor_->name().find("weight") != std::string::npos);
     // for BSHD attention start
-    if(axiss.size() == 1 && axiss[0].first == HEAD && axiss[0].second == SEQUENCE) {
+    if (axiss.size() == 1 && axiss[0].first == HEAD && axiss[0].second == SEQUENCE) {
         in_place = false; // in-place transpose
     }
     // for BSHD attention end
@@ -451,10 +446,10 @@ Tensor Tensor::clip(vector<int> b, vector<int> h, vector<int> s, vector<int> d) 
     param["h_size"] = (float)h.size();
     param["s_size"] = (float)s.size();
     param["d_size"] = (float)d.size();
-    for(int i=0; i<b.size(); ++i) param["b_" + std::to_string(i)] = (float)b[i];
-    for(int i=0; i<h.size(); ++i) param["h_" + std::to_string(i)] = (float)h[i];
-    for(int i=0; i<s.size(); ++i) param["s_" + std::to_string(i)] = (float)s[i];
-    for(int i=0; i<d.size(); ++i) param["d_" + std::to_string(i)] = (float)d[i];
+    for (int i = 0; i < b.size(); ++i) param["b_" + std::to_string(i)] = (float)b[i];
+    for (int i = 0; i < h.size(); ++i) param["h_" + std::to_string(i)] = (float)h[i];
+    for (int i = 0; i < s.size(); ++i) param["s_" + std::to_string(i)] = (float)s[i];
+    for (int i = 0; i < d.size(); ++i) param["d_" + std::to_string(i)] = (float)d[i];
     string name_su = "clip-";
     if (!(d.size() == 2 && b.empty() && h.empty() && s.empty())) {
         for (auto as : param) {
@@ -472,10 +467,10 @@ Tensor Tensor::clip(Chl keep_axis, vector<int> b, vector<int> h, vector<int> s, 
     param["h_size"] = (float)h.size();
     param["s_size"] = (float)s.size();
     param["d_size"] = (float)d.size();
-    for(int i=0; i<b.size(); ++i) param["b_" + std::to_string(i)] = (float)b[i];
-    for(int i=0; i<h.size(); ++i) param["h_" + std::to_string(i)] = (float)h[i];
-    for(int i=0; i<s.size(); ++i) param["s_" + std::to_string(i)] = (float)s[i];
-    for(int i=0; i<d.size(); ++i) param["d_" + std::to_string(i)] = (float)d[i];
+    for (int i = 0; i < b.size(); ++i) param["b_" + std::to_string(i)] = (float)b[i];
+    for (int i = 0; i < h.size(); ++i) param["h_" + std::to_string(i)] = (float)h[i];
+    for (int i = 0; i < s.size(); ++i) param["s_" + std::to_string(i)] = (float)s[i];
+    for (int i = 0; i < d.size(); ++i) param["d_" + std::to_string(i)] = (float)d[i];
     return runFunc({name() + "-clipaxis"}, F_CLIPAXIS, param,
                    {*this})[0];
 }
@@ -490,13 +485,13 @@ Tensor Tensor::clip(vector<int> index, Chl dim) {
     OpParam param;
     param["dim"] = (float)dim;
     return runFunc({name() + "-cliptensor"}, F_CLIPTENSOR, param,
-                   {*this,index_tensor})[0];
+                   {*this, index_tensor})[0];
 }
 Tensor Tensor::clip(Tensor index, Chl dim) {
     OpParam param;
     param["dim"] = (float)dim;
     return runFunc({name() + "-cliptensor"}, F_CLIPTENSOR, param,
-                   {*this,index})[0];
+                   {*this, index})[0];
 }
 Tensor Tensor::expand(int b, int h, int s, int d) {
     OpParam param;
@@ -527,13 +522,13 @@ Tensor Tensor::index_put(Tensor value, Tensor indices, bool accumulate) {
     OpParam param;
     param["accumulate"] = (float)accumulate;
     return runFunc({name() + "-index_put"}, F_INDEX_PUT, param,
-                   {*this,value, indices},
+                   {*this, value, indices},
                    !accumulate)[0];
 }
-void Tensor::scatter_reduce(Tensor value, Tensor indices) {
+void Tensor::scatter_add(Tensor value, Tensor indices) {
     OpParam param;
-    runFunc({name()}, F_SCATTERREDUCE, param,
-            {*this,value, indices})[0];
+    runFunc({name()}, F_SCATTERRADD, param,
+            {*this, value, indices})[0];
 }
 
 Tensor Tensor::cat(vector<Tensor> input_tensors, Chl axis) {
@@ -568,7 +563,7 @@ vector<Tensor> Tensor::split(Tensor input, std::vector<int> each_dims,
     OpParam param;
     vector<std::string> next_names;
     param["num_splits"] = (float)each_dims.size();
-    for(int i=0; i<each_dims.size(); ++i){
+    for (int i = 0; i < each_dims.size(); ++i) {
         param["dim_" + std::to_string(i)] = (float)each_dims[i];
         next_names.push_back(input.name() + ".split-" + std::to_string(i));
     }
@@ -623,13 +618,20 @@ Tensor Tensor::flash_attention2_forward(Tensor q, Tensor k, Tensor v, bool causa
     OpParam param;
     param["causal_mask"] = causal_mask ? 1.0f : 0.0f;
     return runFunc({q.name() + "-" + k.name() + "-fa2"}, F_FA2, param,
-                   {q, k,v})[0];
+                   {q, k, v})[0];
+};
+Tensor Tensor::sage_attention_forward(Tensor q, Tensor k, Tensor v, bool causal_mask) {
+    Module *module = q.module();
+    OpParam param;
+    param["causal_mask"] = causal_mask ? 1.0f : 0.0f;
+    return runFunc({q.name() + "-" + k.name() + "-sage_attn"}, F_SAGEATTN, param,
+                   {q, k, v})[0];
 };
 Tensor Tensor::apply_rotary_pos_emb_vision(Tensor input, Tensor rotary_pos_emb) {
     Module *module = input.module();
     return runFunc({input.name() + "-apply_rotary_pos_emb"}, F_APPLY_VISIOROPE,
                    {},
-                   {input,rotary_pos_emb})[0];
+                   {input, rotary_pos_emb})[0];
 }
 
 Tensor Tensor::fuyu_gather_embd(Tensor word, Tensor image_patches, Tensor image_patches_indices) {

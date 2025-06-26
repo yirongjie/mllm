@@ -214,15 +214,15 @@ file(GLOB_RECURSE SRC_TOKENIZERS
 
 # if compile to x86_64
 if(QUANT)
-    include_directories(${PROJECT_SOURCE_DIR}/src/quantizer)
+    include_directories(${PROJECT_SOURCE_DIR}/tools/quantizer)
     file(GLOB_RECURSE MLLM_QUANT
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/GemmPack.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ8.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ4.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ6.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ3.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ2.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/GemmPack.cpp
         ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/GemmKleidiai.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ8.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ4.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ6.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ3.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ2.cpp
     )
 
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
@@ -261,12 +261,12 @@ if(QUANT)
     endif()
 
     file(GLOB_RECURSE MLLM_QUANTIZER
-        ${PROJECT_SOURCE_DIR}/src/quantizer/*.cpp
-        ${PROJECT_SOURCE_DIR}/src/quantizer/*.hpp)
-    list(REMOVE_ITEM MLLM_QUANTIZER ${PROJECT_SOURCE_DIR}/src/quantizer/main_quantize.cpp)
+        ${PROJECT_SOURCE_DIR}/tools/quantizer/*.cpp
+        ${PROJECT_SOURCE_DIR}/tools/quantizer/*.hpp)
+    list(REMOVE_ITEM MLLM_QUANTIZER ${PROJECT_SOURCE_DIR}/tools/quantizer/main_quantize.cpp)
     add_executable(
         quantize
-        ${PROJECT_SOURCE_DIR}/src/quantizer/main_quantize.cpp
+        ${PROJECT_SOURCE_DIR}/tools/quantizer/main_quantize.cpp
         ${MLLM_QUANT}
         ${MLLM_QUANTIZER}
         ${PROJECT_SOURCE_DIR}/src/ParamLoader.cpp

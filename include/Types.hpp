@@ -24,6 +24,7 @@ typedef map<std::string, float> OpParam;
 
 #define LLAMAFILE_SGEMM
 inline int KVCache_TYPE = 16;
+inline int KVCacheSageDtypeBit = 8; // 8 or 16
 typedef enum {
     MLLM_CPU,
     MLLM_OPENCL,
@@ -72,7 +73,7 @@ enum DataType {
     MLLM_TYPE_Q4_0_4_8 = 20,
     MLLM_TYPE_Q4_0_8_8 = 21,
     MLLM_TYPE_Q8_0_4_4 = 22,
-
+    // 2-bit quantizations
     MLLM_TYPE_Q3_K = 23, //
     MLLM_TYPE_Q2_K = 24,
     MLLM_TYPE_Q1_K = 25,    //
@@ -81,8 +82,9 @@ enum DataType {
     MLLM_TYPE_IQ1_S = 28,   //
     MLLM_TYPE_IQ1_M = 29,   //
     MLLM_TYPE_IQ2_S = 30,
-    
+
     MLLM_TYPE_KLEIDIAI_Q4_0 = 31,
+    MLLM_TYPE_Q8_0F = 32, // quantized with float scale
 
     MLLM_TYPE_COUNT,
 };
@@ -284,6 +286,14 @@ typedef struct {
 } block_q8_per_tensor; // used in vecdot_i8_i8, TODO: remove
 #pragma pack()
 
+#define QK8_0F 32
+#pragma pack(1)
+typedef struct {
+    float scale;       // delta
+    int8_t qs[QK8_0F]; // quants
+} block_q8_0f;
+#pragma pack()
+
 // This is only used for intermediate quantization and dot products
 #pragma pack(1)
 typedef struct {
@@ -330,15 +340,8 @@ static_assert(sizeof(block_q8_0x8) == 8 * sizeof(mllm_fp16_t) + QK8_0 * 8, "wron
 typedef struct {
     uint8_t scales[QK_K / 16]; // scales and mins, quantized with 4 bits
     uint8_t qs[QK_K / 4];      // quants
-    // MLLM_EXTENSION union {
-    //     struct {
-    //         mllm_fp16_t d;    // super-block scale for quantized scales
-    //         mllm_fp16_t dmin; // super-block scale for quantized mins
-    //     } MLLM_COMMON_AGGR_S;
-    //     mllm_half32 dm;
-    // } MLLM_COMMON_AGGR_U;
-    mllm_fp16_t d;    // super-block scale for quantized scales
-    mllm_fp16_t dmin; // super-block scale for quantized mins
+    mllm_fp16_t d;             // super-block scale for quantized scales
+    mllm_fp16_t dmin;          // super-block scale for quantized mins
 } block_q2_K;
 #pragma pack()
 static_assert(sizeof(block_q2_K) == 2 * sizeof(mllm_fp16_t) + QK_K / 16 + QK_K / 4, "wrong q2_K block size/padding");
@@ -417,6 +420,8 @@ static string DataTypeName(DataType dataType) {
         return "IQ2_S";
     case MLLM_TYPE_KLEIDIAI_Q4_0:
         return "KLEIDIAI_Q4_0";
+    case MLLM_TYPE_Q8_0F:
+        return "Q8_0F";
     case MLLM_TYPE_COUNT:
         return "COUNT";
     default:
@@ -477,8 +482,9 @@ static size_t DataTypeSize(DataType dtype, uint64_t count = 1) {
     case MLLM_TYPE_IQ2_S:
         return -1;
     case MLLM_TYPE_KLEIDIAI_Q4_0:
-        // std::cout << "KLEIDIAI_Q4_0 is not supported yet" << std::endl;
-        return sizeof(uint8_t) * count ;
+        return sizeof(uint8_t) * count;
+    case MLLM_TYPE_Q8_0F:
+        return (sizeof(block_q8_0f)) * count / (QK8_0F);
     case MLLM_TYPE_COUNT:
         return 0;
     default:

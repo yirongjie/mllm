@@ -239,6 +239,7 @@ ErrorCode CPUKVCache::setUp(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr
     return MLLM_NO_ERROR;
 }
 
+// for sd
 ErrorCode CPUKVCache::updateVerifiedKVCache(const std::vector<unsigned int> &verified_position_ids) {
     if (cache_.ctype() == BSHD) {
         unsigned int dest_pid = cache_seq_len_ - verified_position_ids.size();

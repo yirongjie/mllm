@@ -63,10 +63,10 @@ public:
         return ts[0];
     }
 
-    void initOp(){
-         if (op_ == nullptr) {
-            if ((param_["type"] == KVCACHE || param_["type"] == KVCACHENPU) 
-                    && (Backend::global_backends.find(MLLM_QNN) != Backend::global_backends.end())) {
+    void initOp() {
+        if (op_ == nullptr) {
+            if ((param_["type"] == KVCACHE || param_["type"] == KVCACHENPU)
+                && (Backend::global_backends.find(MLLM_QNN) != Backend::global_backends.end())) {
                 if (kv_cache_map.find(name_) == kv_cache_map.end()) {
                     // for the prefill part, we need to create a new op
                     param_["type"] = KVCACHENPU;
@@ -101,7 +101,7 @@ protected:
     vector<Tensor> run(vector<Tensor> inputs, int N = 1) {
         initOp();
         Module *module = inputs.empty() ? Module::llm_model_ptr : inputs[0].module();
-        if (module->doLoad || !inited_loaded) {//load
+        if (module->doLoad || !inited_loaded) { // load
             if (module->doLoad) {
                 op_->load(*module->loader);
                 inited_loaded = true;
@@ -569,14 +569,19 @@ public:
         param_["for_xnn"] = false;
         init(std::move(name), OpType::KVCACHE);
     }
-    explicit KVCache(int head, int hidden, int n_rep, int cache_max, bool fa2, std::string name) {
+
+    explicit KVCache(int head, int hidden, int n_rep, int cache_max, string attn_impl, std::string name) {
         param_["head"] = head;
         param_["hidden"] = hidden;
         param_["n_rep"] = n_rep;
         param_["cache_max"] = cache_max;
         param_["for_xnn"] = false;
-        param_["fa2"] = fa2;
-        init(std::move(name), OpType::KVCACHE);
+        param_["fa2"] = (attn_impl == "flash_attention_2" || attn_impl == "sage_attention");
+        if (attn_impl == "sage_attention" && hidden % QK8_0F == 0 && KVCacheSageDtypeBit == 8) {
+            init(std::move(name), OpType::KVCACHESAGE);
+        } else {
+            init(std::move(name), OpType::KVCACHE);
+        }
     }
 
     explicit KVCache(int cache_max, std::string name) {

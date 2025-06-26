@@ -31,11 +31,11 @@
 #include "Types.hpp"
 #include <functional>
 #include "ParamLoader.hpp"
-#include "backends/cpu/compute/QuantizeQ8.hpp"
-#include "backends/cpu/compute/QuantizeQ4.hpp"
-#include "backends/cpu/compute/QuantizeQ6.hpp"
-#include "backends/cpu/compute/QuantizeQ3.hpp"
-#include "backends/cpu/compute/QuantizeQ2.hpp"
+#include "QuantizeQ8.hpp"
+#include "QuantizeQ4.hpp"
+#include "QuantizeQ6.hpp"
+#include "QuantizeQ3.hpp"
+#include "QuantizeQ2.hpp"
 
 #if defined(__ARM_ARCH) && defined(__ARM_FEATURE_SVE)
 #include <sys/prctl.h>
@@ -375,10 +375,10 @@ inline int mllm_cpu_get_sve_cnt(void) {
 // ref: https://github.com/mllm-org/llama.cpp/pull/5404
 #ifdef _MSC_VER
 #define mllm_vld1q_u32(w, x, y, z) \
-    { ((w) + ((uint64_t)(x) << 32)), ((y) + ((uint64_t)(z) << 32)) }
+    {((w) + ((uint64_t)(x) << 32)), ((y) + ((uint64_t)(z) << 32))}
 #else
 #define mllm_vld1q_u32(w, x, y, z) \
-    { (w), (x), (y), (z) }
+    {(w), (x), (y), (z)}
 #endif // _MSC_VER
 
 #if !defined(__aarch64__)
@@ -631,10 +631,6 @@ inline static void vec_scale_f32(const int n, float *y, const float v) {
     for (int i = np; i < n; ++i) {
         y[i] *= v;
     }
-
-    //    for (int i = 0; i < n; ++i) {
-    //        y[i] *= v;
-    //    }
 }
 
 // void vec_dot_fp32(const float * __restrict src0, const float * __restrict src1, Tensor *dst, bool support_bias, Tensor *bias, int hid_len, int batch, int head, int src0_inf, int sec1_outf);

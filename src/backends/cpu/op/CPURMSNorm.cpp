@@ -2,7 +2,7 @@
 #include "CPURMSNorm.hpp"
 #include "Tensor.hpp"
 #include "Timing.hpp"
-#include "../compute/VecDot.hpp"
+#include "backends/cpu/third_party/ggml/VecDot.hpp"
 
 namespace mllm {
 

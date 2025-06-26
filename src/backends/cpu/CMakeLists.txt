@@ -2,6 +2,7 @@
 file(GLOB MLLM_CPU_SRC
         ${CMAKE_CURRENT_LIST_DIR}/*.cpp
         ${CMAKE_CURRENT_LIST_DIR}/compute/*.cpp
+        ${CMAKE_CURRENT_LIST_DIR}/third_party/ggml/*.cpp
         ${CMAKE_CURRENT_LIST_DIR}/op/*.cpp
         ${CMAKE_CURRENT_LIST_DIR}/function/*.cpp
 )

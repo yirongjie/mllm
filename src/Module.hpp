@@ -13,7 +13,9 @@
 #include "Trace.hpp"
 #include "Types.hpp"
 #include "backends/cpu/CPUBackend.hpp"
+#ifdef USE_OPENCL
 #include "backends/opencl/OpenCLBackend.hpp"
+#endif
 #include <any>
 #include <cstddef>
 #include <functional>

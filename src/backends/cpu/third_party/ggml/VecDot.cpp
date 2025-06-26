@@ -25,7 +25,7 @@
  * SOFTWARE.
  */
 
-#include "VecDot.hpp"
+#include "backends/cpu/third_party/ggml/VecDot.hpp"
 
 #ifdef __AVX2__
 static void vec_dot_fp32_avx2(const int n, float *__restrict s, const float *__restrict x, const float *__restrict y) {

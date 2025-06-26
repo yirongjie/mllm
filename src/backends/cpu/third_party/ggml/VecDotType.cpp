@@ -311,8 +311,8 @@ type_traits_t type_traits[] = {
         .vec_dot_type = MLLM_TYPE_Q8_0,
         // .nrows                    = 1,
         // .ncols                    = 4,
-        .gemv = (mllm_gemv_func)mllm_gemv_q4_0_4x4_q8_0,
-        .gemm = (mllm_gemm_func)mllm_gemm_q4_0_4x4_q8_0,
+        .gemv = (gemv_func)gemv_q4_0_4x4_q8_0,
+        .gemm = (gemm_func)gemm_q4_0_4x4_q8_0,
     },
     /*[MLLM_TYPE_Q4_0_4_8] = */ {
         .size = sizeof(block_q4_0),
@@ -325,8 +325,8 @@ type_traits_t type_traits[] = {
         .vec_dot_type = MLLM_TYPE_Q8_0,
         // .nrows                    = 1,
         // .ncols                    = 4,
-        .gemv = (mllm_gemv_func)mllm_gemv_q4_0_4x8_q8_0,
-        .gemm = (mllm_gemm_func)mllm_gemm_q4_0_4x8_q8_0,
+        .gemv = (gemv_func)gemv_q4_0_4x8_q8_0,
+        .gemm = (gemm_func)gemm_q4_0_4x8_q8_0,
     },
     /*[MLLM_TYPE_Q4_0_8_8] = */ {
         .size = sizeof(block_q4_0),
@@ -339,8 +339,8 @@ type_traits_t type_traits[] = {
         .vec_dot_type = MLLM_TYPE_Q8_0,
         // .nrows                    = 1,
         // .ncols                    = 8,
-        .gemv = (mllm_gemv_func)mllm_gemv_q4_0_8x8_q8_0,
-        .gemm = (mllm_gemm_func)mllm_gemm_q4_0_8x8_q8_0,
+        .gemv = (gemv_func)gemv_q4_0_8x8_q8_0,
+        .gemm = (gemm_func)gemm_q4_0_8x8_q8_0,
     },
     {},
     /*MLLM_TYPE_Q3_K = */ {
@@ -377,5 +377,7 @@ type_traits_t type_traits[] = {
     {},
     {},
     /*MLLM_TYPE_IQ2_S = */ {},
+    /*MLLM_TYPE_KLEIDIAI_Q4_0 = */ {},
+    /*MLLM_TYPE_Q8_0F = */ {},
     // TODO: add support to more type
 };

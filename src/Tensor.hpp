@@ -75,6 +75,8 @@ class Tensor {
     Chl aggregated_dim_;
     vector<int> aggregated_dims_;
 
+    vector<float> seq_means_;
+
     TensorType ttype_ = NORMAL_TENSOR;
     uint32_t uuid_ = 4294967295U;
     TensorType xnn_tensor_type_ = TensorType::NORMAL_TENSOR;
@@ -127,7 +129,13 @@ public:
 
     Tensor(vector<float> values, BackendType bn_type = MLLM_CPU);
 
-    ~Tensor() = default;
+    ~Tensor() {
+        if (master_tensor_ != nullptr) {
+            auto &children = master_tensor_->childTensors();
+            children.erase(std::remove(children.begin(), children.end(), this), children.end());
+        }
+        // impl_ 的 shared_ptr 会在这里被自动析构，如果引用计数为0，则会调用 ~TensorImpl()
+    }
 
 public:
     static TensorStatus tensor_status;
@@ -359,22 +367,22 @@ public:
     }
 
     /**
-    * @brief 获取设备内存的通用描述符。
-    * @return DeviceMemory& 对设备内存描述符的引用。
-    */
-    DeviceMemory& device_memory() {
-        if(backend() == nullptr || backend()->type() == MLLM_CPU) {
+     * @brief 获取设备内存的通用描述符。
+     * @return DeviceMemory& 对设备内存描述符的引用。
+     */
+    DeviceMemory &device_memory() {
+        if (backend() == nullptr || backend()->type() == MLLM_CPU) {
             throw std::runtime_error("Device memory is not available for CPU backend.");
         }
         return impl_->device_memory_;
     }
 
     /**
-    * @brief 获取设备内存的通用描述符 (const 版本)。
-    * @return const DeviceMemory& 对设备内存描述符的常量引用。
-    */
-    const DeviceMemory& device_memory() const {
-        if(backend() == nullptr || backend()->type() == MLLM_CPU) {
+     * @brief 获取设备内存的通用描述符 (const 版本)。
+     * @return const DeviceMemory& 对设备内存描述符的常量引用。
+     */
+    const DeviceMemory &device_memory() const {
+        if (backend() == nullptr || backend()->type() == MLLM_CPU) {
             throw std::runtime_error("Device memory is not available for CPU backend.");
         }
         return impl_->device_memory_;
@@ -756,6 +764,13 @@ public:
         return impl_->should_in_graphs_;
     }
 
+    vector<float> &seqMeans() {
+        if (master_tensor_ != nullptr) {
+            return master_tensor_->seq_means_;
+        }
+        return seq_means_;
+    }
+
     static Tensor zeros(int batch, int head, int sequence, int dimension, BackendType bn_type = MLLM_CPU) {
         Tensor tensor1(batch, head, sequence, dimension, bn_type, true);
         memset(tensor1.hostPtr<float>(), 0, tensor1.count() * sizeof(float));
@@ -815,7 +830,7 @@ public:
         return split(*this, each_dims, split_dim, same_dim_size);
     }
     Tensor index_put(Tensor value, Tensor indices, bool accumulate);
-    void scatter_reduce(Tensor value, Tensor indices);
+    void scatter_add(Tensor value, Tensor indices);
     static vector<Tensor> topk(Tensor input, int k, Chl dim);
     Tensor sum(Chl dim);
     Tensor argsort();
@@ -823,6 +838,7 @@ public:
     Tensor repeat(Chl dim, int dim_size);
     static Tensor zero_like(Tensor input);
     static Tensor flash_attention2_forward(Tensor q, Tensor k, Tensor v, bool is_causal = true);
+    static Tensor sage_attention_forward(Tensor q, Tensor k, Tensor v, bool causal_mask = false);
     static Tensor apply_rotary_pos_emb_vision(Tensor input, Tensor rotary_pos_emb);
 
     // models use only
@@ -839,7 +855,6 @@ public:
      * - addChildTensor
      */
 
-
     // 新增一个方法，用于强制设置指针并转移所有权句柄
     // 这是比将 ParamLoader 设为友元类更清晰的做法
     void setHostPtr(void *ptr, std::shared_ptr<void> memory_handle) {
@@ -849,9 +864,9 @@ public:
         }
         // 接管来自 mmap 的新指针和内存句柄
         impl_->host_ptr_ = ptr;
-        impl_->owns_host_ptr_ = false; // 标记内存为外部管理
+        impl_->owns_host_ptr_ = false;                    // 标记内存为外部管理
         impl_->memory_handle_ = std::move(memory_handle); // 持有 mmap 句柄
-        impl_->allocated_ = count(); // 标记为已分配状态
+        impl_->allocated_ = count();                      // 标记为已分配状态
     }
 
     /**
@@ -1056,13 +1071,13 @@ public:
         }
         assert(dtype() == MLLM_TYPE_F32 && "Tensor::half() can only be called on an FP32 tensor.");
         assert(master_tensor_ == nullptr && "Conversion not supported for child tensors.");
-        if(allocted()) {
+        if (allocted()) {
             Tensor half_tensor(batch(), head(), sequence(), dimension(), backend(), false);
             half_tensor.setDtype(MLLM_TYPE_F16);
             half_tensor.alloc();
             backend()->convert_fp_data(this, &half_tensor);
             return half_tensor;
-        }else {
+        } else {
             impl_->dtype_ = MLLM_TYPE_F16;
             return *this;
         }
@@ -1076,13 +1091,13 @@ public:
         }
         assert(dtype() == MLLM_TYPE_F16 && "Tensor::fp32() can only be called on an FP16 tensor.");
         assert(master_tensor_ == nullptr && "Conversion not supported for child tensors.");
-        if(allocted()) {
+        if (allocted()) {
             Tensor fp32_tensor(batch(), head(), sequence(), dimension(), backend(), false);
             fp32_tensor.setDtype(MLLM_TYPE_F32);
             fp32_tensor.alloc();
             backend()->convert_fp_data(this, &fp32_tensor);
             return fp32_tensor;
-        }else {
+        } else {
             impl_->dtype_ = MLLM_TYPE_F16;
             return *this;
         }
@@ -1093,7 +1108,7 @@ public:
             if (input.device() != backend_type) {
                 input.to(backend_type);
             }
-        } 
+        }
         return inputs;
     };
     static vector<Tensor> toCPU(vector<Tensor> inputs) {
@@ -1118,7 +1133,7 @@ public:
     void forceResetHostPointer(void *ptr);
 
     float i8_scale = 1.f;
-    
+
     void allocFromTemplate(shared_ptr<Tensor> template_tensor);
 
 private:
@@ -1129,8 +1144,8 @@ private:
         const std::shared_ptr<Tensor> &template_tensor,
         Module *module,
         Backend *backend);
-public:
 
+public:
     /* Functions used for 5-D Tensor:
      * - reshape
      * - channel
@@ -1477,7 +1492,6 @@ private:
                                        OpParam param,
                                        std::vector<Tensor> input_tensors = {},
                                        bool in_place = false);
-
 
 public:
     /* Functions used for TEST & DEBUG

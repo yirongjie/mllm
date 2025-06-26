@@ -8,7 +8,7 @@
 #include <cmath>
 #include <cstring>
 #include "Types.hpp"
-#include "VecDot.hpp"
+#include "backends/cpu/third_party/ggml/VecDot.hpp"
 
 #ifdef __AVX2__
 #include <immintrin.h>

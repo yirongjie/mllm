@@ -8,6 +8,7 @@
 #include "Types.hpp"
 #include "tokenizers/Tokenizer.hpp"
 #include <memory>
+#include <omp.h>
 
 namespace mllm {
 

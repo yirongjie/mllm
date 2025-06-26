@@ -1,8 +1,8 @@
 
 #include "CPULinearINT8Shadow.hpp"
 #include "Types.hpp"
-#include "../compute/VecDot.hpp"
-#include "compute/QuantizeQ8.hpp"
+#include "backends/cpu/third_party/ggml/VecDot.hpp"
+#include "backends/cpu/third_party/ggml/QuantizeQ8.hpp"
 #include <cstdint>
 
 namespace mllm {
