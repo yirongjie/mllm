@@ -11,6 +11,29 @@ project(mllm CXX C ASM)
 
 cmake_policy(SET CMP0074 NEW)
 set(CMAKE_CXX_STANDARD 17)
+
+
+# 添加Address Sanitizer选项
+option(USE_ASAN "Enable AddressSanitizer for memory leak detection" OFF)
+
+if(USE_ASAN)
+    message(STATUS "Enabling AddressSanitizer")
+    # 确保包含调试符号
+    if(NOT MSVC)
+        add_compile_options(-g)
+    endif()
+    
+    # 设置ASan编译选项
+    if(MSVC)
+        add_compile_options(/fsanitize=address)
+        add_link_options(/fsanitize:address)
+    else()
+        add_compile_options(-fsanitize=address -fno-omit-frame-pointer)
+        add_link_options(-fsanitize=address)
+    endif()
+endif()
+
+
 option(ARM "build on ARM" OFF)
 
 set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
@@ -214,15 +237,15 @@ file(GLOB_RECURSE SRC_TOKENIZERS
 
 # if compile to x86_64
 if(QUANT)
-    include_directories(${PROJECT_SOURCE_DIR}/src/quantizer)
+    include_directories(${PROJECT_SOURCE_DIR}/tools/quantizer)
     file(GLOB_RECURSE MLLM_QUANT
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/GemmPack.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ8.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ4.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ6.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ3.cpp
-        ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/QuantizeQ2.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/GemmPack.cpp
         ${PROJECT_SOURCE_DIR}/src/backends/cpu/compute/GemmKleidiai.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ8.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ4.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ6.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ3.cpp
+        ${PROJECT_SOURCE_DIR}/src/backends/cpu/third_party/ggml/QuantizeQ2.cpp
     )
 
     if(CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "arm64")
@@ -261,12 +284,12 @@ if(QUANT)
     endif()
 
     file(GLOB_RECURSE MLLM_QUANTIZER
-        ${PROJECT_SOURCE_DIR}/src/quantizer/*.cpp
-        ${PROJECT_SOURCE_DIR}/src/quantizer/*.hpp)
-    list(REMOVE_ITEM MLLM_QUANTIZER ${PROJECT_SOURCE_DIR}/src/quantizer/main_quantize.cpp)
+        ${PROJECT_SOURCE_DIR}/tools/quantizer/*.cpp
+        ${PROJECT_SOURCE_DIR}/tools/quantizer/*.hpp)
+    list(REMOVE_ITEM MLLM_QUANTIZER ${PROJECT_SOURCE_DIR}/tools/quantizer/main_quantize.cpp)
     add_executable(
         quantize
-        ${PROJECT_SOURCE_DIR}/src/quantizer/main_quantize.cpp
+        ${PROJECT_SOURCE_DIR}/tools/quantizer/main_quantize.cpp
         ${MLLM_QUANT}
         ${MLLM_QUANTIZER}
         ${PROJECT_SOURCE_DIR}/src/ParamLoader.cpp

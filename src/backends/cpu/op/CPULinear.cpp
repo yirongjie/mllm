@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <iostream>
 #include "../compute/GemmKleidiai.hpp"
+#include "backends/cpu/third_party/ggml/QuantizeQ8.hpp"
 
 namespace mllm {
 
@@ -199,9 +200,9 @@ ErrorCode CPULinear::setUp(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<
     return MLLM_NO_ERROR;
 }
 ErrorCode CPULinear::free(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
-    weight_.free();
+    weight_.unload();
     if (support_bias_) {
-        bias_.free();
+        bias_.unload();
     }
     return Op::free(inputs, outputs);
 }
