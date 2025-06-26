@@ -91,7 +91,7 @@ bool ParamLoader::load(mllm::Tensor *tensor) {
         // --- 非 mmap 模式，逻辑保持不变 ---
         // 确保 Tensor 已经分配内存
         // if (tensor->rawHostPtr() == nullptr) {
-            // tensor->alloc();
+        // tensor->alloc();
         // }
         std::lock_guard<std::mutex> lock(mtx);
         if (offsets_.find(name) == offsets_.end()) { return false; }
@@ -123,13 +123,13 @@ bool ParamLoader::load(mllm::Tensor *tensor) {
         is_aligned = false;
         if (is_aligned) {
             // -- 对齐：执行零拷贝 --
-            uint8_t* source_ptr = mmap_buffer_.get() + offset_info.first;
+            uint8_t *source_ptr = mmap_buffer_.get() + offset_info.first;
             // setHostPtr 会处理好一切（包括释放之前 alloc 的内存）
             tensor->setHostPtr(source_ptr, mmap_buffer_);
         } else {
             // -- 未对齐：回退到 memcpy --
             // 从 mmap 区域拷贝数据到 Tensor 自己拥有的内存中
-            uint8_t* source_ptr = mmap_buffer_.get() + offset_info.first;
+            uint8_t *source_ptr = mmap_buffer_.get() + offset_info.first;
             memcpy(tensor->rawHostPtr(), source_ptr, tensor->cntSize());
         }
 
@@ -156,7 +156,7 @@ ParamLoader::ParamLoader(std::string filename, bool use_mmap_param) :           
     path_(std::move(filename)), use_mmap_(use_mmap_param), fp_(nullptr), buffer_(nullptr), size_(0) { // Initialize new members
 
     if (use_mmap_) {
-                // --- 1. 打开文件并获取文件描述符 ---
+        // --- 1. 打开文件并获取文件描述符 ---
         FILE *temp_fp = fopen(this->path_.c_str(), "rb");
         if (temp_fp == nullptr) {
             // perror(("Error opening file for mmap: " + this->path_).c_str());
@@ -171,7 +171,7 @@ ParamLoader::ParamLoader(std::string filename, bool use_mmap_param) :           
 
         // --- 3. 执行内存映射 ---
         int fd = fileno(temp_fp); // 获取文件描述符
-        uint8_t* mapped_ptr = (uint8_t *)mmap(NULL, size_, PROT_READ, MAP_PRIVATE, fd, 0);
+        uint8_t *mapped_ptr = (uint8_t *)mmap(NULL, size_, PROT_READ, MAP_PRIVATE, fd, 0);
 
         // mmap完成后，文件描述符即可关闭，映射关系依然存在
         fclose(temp_fp);
@@ -192,7 +192,7 @@ ParamLoader::ParamLoader(std::string filename, bool use_mmap_param) :           
         // ====================================================================
         // --- 5. 从 mmap 内存区域中解析元数据 ---
         // ====================================================================
-        
+
         // 定义一系列在内存指针上操作的辅助 lambda 函数，用于替代原先在 FILE* 上的操作
         auto mmap_readInt = [&](uint8_t *&ptr) {
             int32_t val;
@@ -216,7 +216,7 @@ ParamLoader::ParamLoader(std::string filename, bool use_mmap_param) :           
 
         // 获取指向 mmap 区域开头的当前指针
         uint8_t *current_ptr = mmap_buffer_.get();
-        
+
         // a. 读取并验证幻数
         int magic = mmap_readInt(current_ptr);
         if (magic != _MAGIC_NUMBER) {
@@ -228,7 +228,7 @@ ParamLoader::ParamLoader(std::string filename, bool use_mmap_param) :           
 
         // b. 读取索引区域的总长度
         uint64_t index_size = mmap_readu64(current_ptr);
-        
+
         // c. 计算索引区域的结束地址
         uint8_t *index_end_ptr = current_ptr + index_size;
 
@@ -237,7 +237,7 @@ ParamLoader::ParamLoader(std::string filename, bool use_mmap_param) :           
             std::string name = mmap_readString(current_ptr);
             uint64_t length = mmap_readu64(current_ptr);
             uint64_t offset_in_file = mmap_readu64(current_ptr);
-            
+
             // 将解析出的信息存入 map
             offsets_[name] = std::make_pair(offset_in_file, length);
             data_type_[name] = static_cast<DataType>(mmap_readInt(current_ptr));
