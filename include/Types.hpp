@@ -81,7 +81,7 @@ enum DataType {
     MLLM_TYPE_IQ1_S = 28,   //
     MLLM_TYPE_IQ1_M = 29,   //
     MLLM_TYPE_IQ2_S = 30,
-    
+
     MLLM_TYPE_KLEIDIAI_Q4_0 = 31,
 
     MLLM_TYPE_COUNT,
@@ -478,7 +478,7 @@ static size_t DataTypeSize(DataType dtype, uint64_t count = 1) {
         return -1;
     case MLLM_TYPE_KLEIDIAI_Q4_0:
         // std::cout << "KLEIDIAI_Q4_0 is not supported yet" << std::endl;
-        return sizeof(uint8_t) * count ;
+        return sizeof(uint8_t) * count;
     case MLLM_TYPE_COUNT:
         return 0;
     default:
