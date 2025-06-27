@@ -97,10 +97,10 @@ public:
         if (cache_limit > 0) {
             k_cache = KVCache(num_key_value_heads, head_dim,
                               num_heads / num_key_value_heads, cache_limit,
-                              (attn_implementation_ == "flash_attention_2"), base_name + "k_cache");
+                              (attn_implementation_ == "flash_attention_2" || attn_implementation_ == "sage_attention"), base_name + "k_cache");
             v_cache = KVCache(num_key_value_heads, head_dim,
                               num_heads / num_key_value_heads, cache_limit,
-                              (attn_implementation_ == "flash_attention_2"), base_name + "v_cache");
+                              (attn_implementation_ == "flash_attention_2" || attn_implementation_ == "sage_attention"), base_name + "v_cache");
         }
         softmax = Softmax(DIMENSION, is_causal, base_name + "softmax");
         o_proj = Linear(num_heads * head_dim, hidden_dim, o_bias, base_name + names._o_proj_name);
@@ -149,6 +149,8 @@ public:
         Tensor o;
         if (attn_implementation_ == "flash_attention_2") {
             o = Tensor::flash_attention2_forward(q, k, v, causal_mask);
+        } else if (attn_implementation_ == "sage_attention") {
+            o = Tensor::sage_attention_forward(q, k, v, causal_mask);
         } else { // eager implementation
             k = k.transpose(SEQUENCE, DIMENSION);
             auto qk = Tensor::mm(q, k);

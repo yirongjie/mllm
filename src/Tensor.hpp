@@ -823,6 +823,7 @@ public:
     Tensor repeat(Chl dim, int dim_size);
     static Tensor zero_like(Tensor input);
     static Tensor flash_attention2_forward(Tensor q, Tensor k, Tensor v, bool is_causal = true);
+    static Tensor sage_attention_forward(Tensor q, Tensor k, Tensor v, bool causal_mask = false);
     static Tensor apply_rotary_pos_emb_vision(Tensor input, Tensor rotary_pos_emb);
 
     // models use only

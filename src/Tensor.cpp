@@ -625,6 +625,13 @@ Tensor Tensor::flash_attention2_forward(Tensor q, Tensor k, Tensor v, bool causa
     return runFunc({q.name() + "-" + k.name() + "-fa2"}, F_FA2, param,
                    {q, k,v})[0];
 };
+Tensor Tensor::sage_attention_forward(Tensor q, Tensor k, Tensor v, bool causal_mask) {
+    Module *module = q.module();
+    OpParam param;
+    param["causal_mask"] = causal_mask ? 1.0f : 0.0f;
+    return runFunc({q.name() + "-" + k.name() + "-sage_attn"}, F_SAGEATTN, param,
+                   {q, k,v})[0];
+};
 Tensor Tensor::apply_rotary_pos_emb_vision(Tensor input, Tensor rotary_pos_emb) {
     Module *module = input.module();
     return runFunc({input.name() + "-apply_rotary_pos_emb"}, F_APPLY_VISIOROPE,

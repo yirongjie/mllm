@@ -118,6 +118,7 @@ enum OpType {
     F_SCATTERREDUCE,
     F_APPLY_VISIOROPE,
     F_FA2,
+    F_SAGEATTN,
     // models use only
     F_FUYU_GATHER_EMBD,
     F_PHI3V_HD_MERGE,

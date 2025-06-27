@@ -94,52 +94,17 @@
 #include "op/CPUScatterReduceFunc.hpp"
 #include "op/CPUVisionRoPEFunc.hpp"
 #include "op/CPUFlashAttention2Func.hpp"
+#include "op/CPUSageAttentionFunc.hpp"
 
 #include "op/CPUFuyuGatherEmbdFunc.hpp"
 #include "op/CPUPhi3VhdmergeFunc.hpp"
 
-// #include "function/CPUBinaryFunc.hpp"
-// #include "function/CPUCatFunc.hpp"
-// #include "function/CPUClipFunc.hpp"
-// #include "function/CPUExpandFunc.hpp"
-// #include "function/CPUFlattenFunc.hpp"
-// #include "function/CPUMatmulFunc.hpp"
-// #include "function/CPUMeanFunc.hpp"
-// #include "function/CPUNormFunc.hpp"
-// #include "function/CPURangeFunc.hpp"
-// #include "function/CPUSplitFunc.hpp"
-// #include "function/CPUSumFunc.hpp"
-// #include "function/CPUTopkFunc.hpp"
-// #include "function/CPUTransposeFunc.hpp"
-// #include "function/CPUViewFunc.hpp"
-// #include "function/CPUWhereFunc.hpp"
-// #include "function/CPUIndexPutFunc.hpp"
-// #include "function/CPUArgSortFunc.hpp"
-// #include "function/CPUBinCountFunc.hpp"
-// #include "function/CPURepeatFunc.hpp"
-// #include "function/CPULikeFunc.hpp"
-// #include "function/CPUScatterReduceFunc.hpp"
-// #include "function/CPUVisionRoPEFunc.hpp"
-// #include "function/CPUFlashAttention2Func.hpp"
-
-// #include "function/CPUFuyuGatherEmbdFunc.hpp"
-// #include "function/CPUPhi3VhdmergeFunc.hpp"
 
 namespace mllm {
 class CPUBackendCreator : public BackendCreator {
     Backend *create(BackendConfig config) {
         shared_ptr<MemoryManager> mm = nullptr;
         mm = std::make_shared<MemoryPoolManager>(); // todomm
-        // switch (config.memory) {
-        // case BackendConfig::Memory_High:
-        //     mm = std::make_shared<SystemMemoryManager>();
-        //     // mm = std::make_shared<MemoryPoolManager>(); // todomm
-        //     break;
-        // default:
-        //     mm = std::make_shared<SystemMemoryManager>();
-        //     // mm = std::make_shared<MemoryPoolManager>(); // todomm
-        //     break;
-        // }
         return new CPUBackend(mm);
     };
 };
@@ -257,6 +222,7 @@ void CPUBackend::registerOps() {
     addCreator(F_SCATTERREDUCE, (CPUBackend::Creator *)(new CPUScatterReduceFunctionCreator()));
     addCreator(F_APPLY_VISIOROPE, (CPUBackend::Creator *)(new CPUVisionRoPEFuncFunctionCreator()));
     addCreator(F_FA2, (CPUBackend::Creator *)(new CPUFlashAttention2FuncCreator()));
+    addCreator(F_SAGEATTN, (CPUBackend::Creator *)(new CPUSageAttentionFuncCreator()));
     // models use only
     addCreator(F_FUYU_GATHER_EMBD, (CPUBackend::Creator *)(new CPUFuyuGatherEmbdFuncCreator()));
     addCreator(F_PHI3V_HD_MERGE, (CPUBackend::Creator *)(new CPUPhi3VhdmergeFunctionCreator()));

@@ -33,7 +33,12 @@ py-build-out/
 mllm.egg-info/
 
 src/backends/qnn/sdk/*
+
+
+
 .DS_Store
+examples/test.cpp
 src/models/ling/modeling_bailing_moe.hpp
 src/models/ling/configuration_bailing_moe.hpp
-examples/test.cpp
+examples/demo_bailing_moe.cpp
+vocab/ling_vocab.mllm
