@@ -36,6 +36,7 @@ int main(int argc, char **argv) {
 
     auto tokenizer = QWenTokenizer(vocab_path, merge_path);
     QWenConfig config(tokens_limit, model_billion, RoPEType::HFHUBROPE);
+    // config.attn_implementation = "sage_attention"; // 使用SAGE Attention实现
     auto model = QWenForCausalLM(config);
     model.load(model_path);
 
