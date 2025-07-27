@@ -303,6 +303,18 @@ std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::v
     static map<string, shared_ptr<Tensor>> empty_activation_tensors;
     map<string, shared_ptr<Tensor>> &activation_tensors = module ? module->activation_tensors : empty_activation_tensors;
     if (module && module->doTrace) { // trace
+        if (module->tracedFlag) {
+            vector<Tensor> results = {};
+            for (auto &name : out_names) results.push_back(*activation_tensors[name]);
+            return results;
+        }
+        for (auto &input : inputs) {
+            if (input.shouldInGraphs() && activation_tensors.find(input.name()) == activation_tensors.end()) {
+                activation_tensors[input.name()] = std::make_shared<Tensor>(op->backend());
+                activation_tensors[input.name()]->setName(input.name());
+                activation_tensors[input.name()]->setModule(module);
+            }
+        }
         for (const auto &out_name : out_names) {
             if (activation_tensors.find(out_name) == activation_tensors.end()) {
                 activation_tensors[out_name] = std::make_shared<Tensor>(op->backend());
@@ -373,6 +385,8 @@ std::vector<Tensor> CPUBackend::runOp(Op *op, std::vector<Tensor> inputs, std::v
 #ifdef DEBUGSAVETENSOR
         if (out_tensor->dtype() == MLLM_TYPE_F32)
             out_tensor->saveData<float>();
+        if (out_tensor->dtype() == MLLM_TYPE_F16)
+            out_tensor->saveData<mllm_fp16_t>();
 #endif
     }
     return results;
@@ -391,7 +405,7 @@ std::vector<Tensor> CPUBackend::runLayer(Layer *layer, std::vector<Tensor> input
 }
 
 std::vector<Tensor> CPUBackend::runForward(Module *module, std::vector<Tensor> inputs, std::vector<std::any> args) {
-    if (mllm::Module::llm_model_ptr && mllm::Module::llm_model_ptr->doLoad) {
+    if (mllm::Module::llm_model_ptr && (mllm::Module::llm_model_ptr->doLoad || Module::llm_model_ptr->doChangeBn)) {
         auto outputs = module->Forward(inputs, args);
         return outputs;
     }

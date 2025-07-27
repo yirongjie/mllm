@@ -12,14 +12,13 @@
 namespace mllm {
 class Tensor;
 
-
 class CPUaddFunction : public Op {
 private:
     int thread_count = 4;
     float data = 0.0f; // The data to be added
 public:
-    CPUaddFunction(Backend *bn, string name, float data, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {
+    CPUaddFunction(Backend *bn, string name, float data, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
         this->data = data;
     }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
@@ -55,9 +54,10 @@ class CPUsubFunction : public Op {
 private:
     int thread_count = 4;
     float data = 0.0f;
+
 public:
-    CPUsubFunction(Backend *bn, string name, float data, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {
+    CPUsubFunction(Backend *bn, string name, float data, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
         this->data = data;
     }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
@@ -93,9 +93,10 @@ class CPUmulFunction : public Op {
 private:
     int thread_count = 4;
     float data = 0.0f;
+
 public:
-    CPUmulFunction(Backend *bn, string name, float data, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {
+    CPUmulFunction(Backend *bn, string name, float data, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
         this->data = data;
     }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
@@ -131,14 +132,16 @@ class CPUdivFunction : public Op {
 private:
     int thread_count = 4;
     float data = 0.0f;
+
 public:
-    CPUdivFunction(Backend *bn, string name, float data, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {
+    CPUdivFunction(Backend *bn, string name, float data, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
         this->data = data;
     }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         auto input = inputs[0];
         auto output = outputs[0];
+        output->setCtype(input->ctype());
         output->reshape(input->batch(), input->head(), input->sequence(), input->dimension());
         output->setDtype(input->dtype());
         return ErrorCode::MLLM_NO_ERROR;
@@ -169,9 +172,10 @@ class CPUdivintFunction : public Op {
 private:
     int thread_count = 4;
     float data = 0.0f;
+
 public:
-    CPUdivintFunction(Backend *bn, string name, float data, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {
+    CPUdivintFunction(Backend *bn, string name, float data, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
         this->data = data;
     }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
@@ -208,9 +212,11 @@ public:
 class CPUaddTwoFunction : public Op {
 private:
     int thread_count = 4;
+
 public:
-    CPUaddTwoFunction(Backend *bn, string name, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {}
+    CPUaddTwoFunction(Backend *bn, string name, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
+    }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         outputs[0]->reshape(std::max(inputs[0]->batch(), inputs[1]->batch()),
                             inputs[0]->head(), inputs[0]->sequence(), inputs[0]->dimension());
@@ -246,9 +252,11 @@ public:
 class CPUsubTwoFunction : public Op {
 private:
     int thread_count = 4;
+
 public:
-    CPUsubTwoFunction(Backend *bn, string name, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {}
+    CPUsubTwoFunction(Backend *bn, string name, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
+    }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         outputs[0]->reshape(std::max(inputs[0]->batch(), inputs[1]->batch()),
                             inputs[0]->head(), inputs[0]->sequence(), inputs[0]->dimension());
@@ -284,9 +292,11 @@ public:
 class CPUmulTwoFunction : public Op {
 private:
     int thread_count = 4;
+
 public:
-    CPUmulTwoFunction(Backend *bn, string name, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {}
+    CPUmulTwoFunction(Backend *bn, string name, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
+    }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         outputs[0]->reshape(std::max(inputs[0]->batch(), inputs[1]->batch()),
                             inputs[0]->head(), inputs[0]->sequence(), inputs[0]->dimension());
@@ -334,9 +344,11 @@ public:
 class CPUdivTwoFunction : public Op {
 private:
     int thread_count = 4;
+
 public:
-    CPUdivTwoFunction(Backend *bn, string name, int threadCount)
-        : thread_count(threadCount), Op(bn, name) {}
+    CPUdivTwoFunction(Backend *bn, string name, int threadCount) :
+        thread_count(threadCount), Op(bn, name) {
+    }
     ErrorCode reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) override {
         outputs[0]->reshape(std::max(inputs[0]->batch(), inputs[1]->batch()),
                             inputs[0]->head(), inputs[0]->sequence(), inputs[0]->dimension());

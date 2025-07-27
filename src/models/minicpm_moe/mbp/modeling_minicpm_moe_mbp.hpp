@@ -377,7 +377,6 @@ public:
     MiniCPMForCausalLM(MiniCPMConfig &config) {
         num_hidden_layers = config.num_hidden_layers;
         num_experts = config.num_experts;
-        // KVCache_TYPE = 32;
         auto names = config.names_config;
         scale_emb = config.scale_emb;
         dim_model_base = config.dim_model_base;

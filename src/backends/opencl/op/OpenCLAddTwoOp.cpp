@@ -1,16 +1,16 @@
-#include "OpenCLAddFuncOp.hpp"
+#include "OpenCLAddTwoOp.hpp"
 #include "Types.hpp"
 #include "utils/OpenCLTools.hpp"
 
 namespace mllm {
 
-
-OpenCLAddFuncOp::OpenCLAddFuncOp(Backend *bn, std::string name) : Op(bn, std::move(name)) {
+OpenCLAddTwoOp::OpenCLAddTwoOp(Backend *bn, std::string name) :
+    Op(bn, std::move(name)) {
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
     // 只获取一次 Program
-    const std::string kernel_path_str = get_kernel_path(__FILE__, "../kernel/add.cl");
+    const std::string kernel_path_str = "kernel/add.cl";
     cl_program program = ocl_backend_->getProgram(kernel_path_str);
 
     cl_int err;
@@ -33,7 +33,7 @@ OpenCLAddFuncOp::OpenCLAddFuncOp(Backend *bn, std::string name) : Op(bn, std::mo
 }
 
 // 替换您的析构函数
-OpenCLAddFuncOp::~OpenCLAddFuncOp() {
+OpenCLAddTwoOp::~OpenCLAddTwoOp() {
     if (kernel_fp32_buffer_) clReleaseKernel(kernel_fp32_buffer_);
     if (kernel_fp32_image_) clReleaseKernel(kernel_fp32_image_);
     if (kernel_fp16_buffer_) clReleaseKernel(kernel_fp16_buffer_);
@@ -41,28 +41,28 @@ OpenCLAddFuncOp::~OpenCLAddFuncOp() {
     if (sampler_) clReleaseSampler(sampler_);
 }
 
-ErrorCode OpenCLAddFuncOp::reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
+ErrorCode OpenCLAddTwoOp::reshape(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
     // 加法操作要求输入和输出的形状一致
     auto input0_shape = inputs[0]->shape();
-    outputs[0]->reshape(input0_shape[0], input0_shape[1], input0_shape[2], input0_shape[3]);
+    outputs[0]->reshape(inputs[0]->batch(), inputs[0]->head(), inputs[0]->sequence(), inputs[0]->dimension());
     outputs[0]->setDtype(inputs[0]->dtype());
     return MLLM_NO_ERROR;
 }
 
-ErrorCode OpenCLAddFuncOp::setUp(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
+ErrorCode OpenCLAddTwoOp::setUp(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
     // 确保输入在设备上
-    for(auto& input : inputs) {
+    for (auto &input : inputs) {
         input->to(MLLM_OPENCL);
     }
     auto output = outputs[0];
-
+    output->to(MLLM_OPENCL);
     // 根据输入设置输出的数据类型
     output->setDtype(inputs[0]->dtype());
 
-    auto& out_mem = output->device_memory();
-    
+    auto &out_mem = output->device_memory();
+
     // **核心修改：直接决策为 Image 或 Buffer**
-    if (output->dimension() % 4 == 0) {
+    if (output->dimension() % 4 == 0 && false) {
         // 条件满足，直接为输出张量申请 Image2D 类型的内存
         out_mem.type = MEM_TYPE_IMAGE_2D; // **直接设为 Image2D**
         out_mem.image_width = output->dimension() / 4;
@@ -73,13 +73,94 @@ ErrorCode OpenCLAddFuncOp::setUp(vector<shared_ptr<Tensor>> inputs, vector<share
     }
 
     // alloc() 现在会根据 out_mem.type 直接创建出 Image 或 Buffer
-    output->alloc(); 
+    output->alloc();
     return MLLM_NO_ERROR;
 }
+ErrorCode OpenCLAddTwoOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
+    auto input1 = inputs[0];
+    auto input2 = inputs[1];
+    auto output = outputs[0];
 
-// in OpenCLAddFuncOp.cpp
+    // 决定是否走Image优化路径
+    bool use_image_path = (output->dimension() % 4 == 0) && false;
 
-ErrorCode OpenCLAddFuncOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
+    if (use_image_path) {
+        // ===================================================
+        // ================ Image 优化路径 ===================
+        // ===================================================
+
+        // 1. 将两个输入和输出Tensor原地转换为Image2D类型
+        tensorGlobal2Image(*input1);
+        tensorGlobal2Image(*input2);
+        tensorGlobal2Image(*output);
+
+        // 2. 选择内核
+        cl_kernel kernel_to_use = (input1->dtype() == MLLM_TYPE_F32) ? kernel_fp32_image_ : kernel_fp16_image_;
+
+        // 3. 获取Image句柄并设置参数
+        cl_mem inA_img = ocl_backend_->get_cl_mem(*input1);
+        cl_mem inB_img = ocl_backend_->get_cl_mem(*input2);
+        cl_mem out_img = ocl_backend_->get_cl_mem(*output);
+
+        clSetKernelArg(kernel_to_use, 0, sizeof(cl_sampler), &sampler_);
+        clSetKernelArg(kernel_to_use, 1, sizeof(cl_mem), &inA_img);
+        clSetKernelArg(kernel_to_use, 2, sizeof(cl_mem), &inB_img);
+        clSetKernelArg(kernel_to_use, 3, sizeof(cl_mem), &out_img);
+
+        const int width = static_cast<int>(output->device_memory().image_width);
+        const int height = static_cast<int>(output->device_memory().image_height);
+        clSetKernelArg(kernel_to_use, 4, sizeof(int), &width);
+        clSetKernelArg(kernel_to_use, 5, sizeof(int), &height);
+
+        // 4. 执行内核
+        const size_t global_work_size[2] = {(size_t)width, (size_t)height};
+        cl_event event;
+        clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 2, nullptr, global_work_size, nullptr, 0, nullptr, &event);
+        ocl_backend_->addProfilingEvent(this->name() + "add2", event);
+
+        // 5. [重要] 将所有Tensor转换回Buffer格式，以供后续算子使用
+        tensorImage2Global(*input1);
+        tensorImage2Global(*input2);
+        tensorImage2Global(*output);
+
+    } else {
+        // ===================================================
+        // ============= 普通 Buffer 回退路径 ================
+        // ===================================================
+
+        // 确保所有Tensor都是Buffer格式
+        tensorImage2Global(*input1);
+        tensorImage2Global(*input2);
+        tensorImage2Global(*output);
+
+        cl_kernel kernel_to_use = (input1->dtype() == MLLM_TYPE_F32) ? kernel_fp32_buffer_ : kernel_fp16_buffer_;
+
+        cl_mem in0_buf = ocl_backend_->get_cl_mem(*input1);
+        cl_mem in1_buf = ocl_backend_->get_cl_mem(*input2);
+        cl_mem out_buf = ocl_backend_->get_cl_mem(*output);
+
+        clSetKernelArg(kernel_to_use, 0, sizeof(cl_mem), &in0_buf);
+        clSetKernelArg(kernel_to_use, 1, sizeof(cl_mem), &in1_buf);
+        clSetKernelArg(kernel_to_use, 2, sizeof(cl_mem), &out_buf);
+
+        size_t count = input1->count();
+        if (input1->dtype() == MLLM_TYPE_F16) {
+            if (count % 4 != 0) {
+                throw std::runtime_error("For FP16 vector kernel, tensor count must be a multiple of 4.");
+            }
+            count /= 4;
+        }
+
+        const size_t global_work_size[1] = {count};
+        cl_event event;
+        clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 1, nullptr, global_work_size, nullptr, 0, nullptr, &event);
+        ocl_backend_->addProfilingEvent(this->name() + "add2", event);
+    }
+
+    return MLLM_NO_ERROR;
+}
+/*
+ErrorCode OpenCLAddTwoOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
     // 1. 获取输入数据类型和输出张量
     auto input_dtype = inputs[0]->dtype();
     auto output = outputs[0];
@@ -98,19 +179,19 @@ ErrorCode OpenCLAddFuncOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sha
         } else if (input_dtype == MLLM_TYPE_F16) {
             kernel_to_use = kernel_fp16_image_;
         } else {
-            throw std::runtime_error("Unsupported data type for OpenCLAddFuncOp Image Path");
+            throw std::runtime_error("Unsupported data type for OpenCLAddTwoOp Image Path");
         }
 
         // b. 准备内核参数
         //    - 输入张量(inputs): 它们是由默认的 .cl() 方法创建的Buffer，所以必须通过工具函数进行拷贝转换。
         //    - 输出张量(output): 它在setUp中已经被直接创建为Image，所以可以直接获取其句柄。
-        
+
         //    创建一个临时存储vector，用于管理为“输入”转换而来的临时Image的生命周期
         std::vector<Tensor> temp_tensor_storage;
-        
+
         cl_mem inA_mem = get_image_from_tensor(inputs[0], ocl_backend_, temp_tensor_storage);
         cl_mem inB_mem = get_image_from_tensor(inputs[1], ocl_backend_, temp_tensor_storage);
-        
+
         // 输出张量已经是Image，直接获取句柄，无需转换！
         cl_mem out_mem_handle = ocl_backend_->get_cl_mem(*output);
 
@@ -127,7 +208,7 @@ ErrorCode OpenCLAddFuncOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sha
         clSetKernelArg(kernel_to_use, 5, sizeof(int), &height);
 
         // d. 设置工作维度并执行内核
-        const size_t global_work_size[2] = { (size_t)width, (size_t)height };
+        const size_t global_work_size[2] = {(size_t)width, (size_t)height};
         clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 2, nullptr, global_work_size, nullptr, 0, nullptr, nullptr);
 
     } else {
@@ -142,9 +223,9 @@ ErrorCode OpenCLAddFuncOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sha
         } else if (input_dtype == MLLM_TYPE_F16) {
             kernel_to_use = kernel_fp16_buffer_;
         } else {
-            throw std::runtime_error("Unsupported data type for OpenCLAddFuncOp Buffer Path");
+            throw std::runtime_error("Unsupported data type for OpenCLAddTwoOp Buffer Path");
         }
-        
+
         // b. 准备内核参数 (所有张量都是Buffer，直接获取句柄)
         cl_mem in0_buf = ocl_backend_->get_cl_mem(*inputs[0]);
         cl_mem in1_buf = ocl_backend_->get_cl_mem(*inputs[1]);
@@ -159,16 +240,19 @@ ErrorCode OpenCLAddFuncOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sha
         // FP16的Buffer内核是向量化的，工作项数量是总元素数除以4
         if (input_dtype == MLLM_TYPE_F16) {
             if (count % 4 != 0) {
-                 throw std::runtime_error("For FP16 vector kernel, tensor count must be a multiple of 4.");
+                throw std::runtime_error("For FP16 vector kernel, tensor count must be a multiple of 4.");
             }
             count /= 4;
         }
-        
+
         // d. 设置工作维度并执行内核
         const size_t global_work_size[1] = {count};
-        clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 1, nullptr, global_work_size, nullptr, 0, nullptr, nullptr);
+        cl_event event;
+        clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 1, nullptr, global_work_size, nullptr, 0, nullptr, &event);
+        ocl_backend_->addProfilingEvent(this->name() + "add2", event);
     }
 
     return MLLM_NO_ERROR;
 }
+*/
 } // namespace mllm

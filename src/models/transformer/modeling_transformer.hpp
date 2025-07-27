@@ -5,6 +5,7 @@
 #ifndef MODELING_TRANSFORMER_HPP
 #define MODELING_TRANSFORMER_HPP
 
+#include "DataType.hpp"
 #include "Layer.hpp"
 #include "Types.hpp"
 #include "configuration_transformer.hpp"
@@ -60,8 +61,10 @@ public:
         MultiHeadAttention(config.hidden_dim, config.num_heads,
                            config.num_key_value_heads, config.head_dim,
                            config.do_qkv_proj, config.post_qkv_norm, config.bias_kv_cat,
-                           config.RoPE_type, config.rope_theta, config.max_position_embeddings,
-                           config.cache_limit, config.is_causal, config.qkv_bias, config.o_bias,
+                           config.RoPE_type, config.rope_theta,
+                           config.max_position_embeddings,
+                           config.cache_limit, config.is_causal,
+                           config.qkv_bias, config.o_bias,
                            config.attn_implementation, names, base_name);
     }
     MultiHeadAttention(int hidden_dim, int num_heads, int num_key_value_heads, int head_dim,
@@ -154,7 +157,7 @@ public:
             q = q_rope(q);
             k = k_rope(k);
         }
-        if (head_first_attn) {
+        if (attn_implementation_ == "eager") {
             q = q.transpose(HEAD, SEQUENCE);
             k = k.transpose(HEAD, SEQUENCE);
             v = v.transpose(HEAD, SEQUENCE);
@@ -168,18 +171,16 @@ public:
             o = Tensor::flash_attention2_forward(q, k, v, causal_mask);
         } else if (attn_implementation_ == "sage_attention") {
             o = Tensor::sage_attention_forward(q, k, v, causal_mask);
-        } else { // eager implementation
+        } else if (attn_implementation_ == "eager") { // eager implementation
+            q = q / std::sqrt(head_dim_);
             k = k.transpose(SEQUENCE, DIMENSION);
             auto qk = Tensor::mm(q, k);
-            qk = qk / std::sqrt(head_dim_);
-            if (k_cache.ready() && v_cache.ready()) {
+            if (k_cache.ready() && v_cache.ready() && k_cache.getCacheSeqLen() != qk.sequence() && qk.sequence() > 1) {
                 qk = softmax(qk, k_cache.getCacheSeqLen());
             } else {
                 qk = softmax(qk);
             }
             o = Tensor::mm(qk, v);
-        }
-        if (head_first_attn) {
             o = o.transpose(HEAD, SEQUENCE);
         }
         o = o.view(-1, 1, -1, head_dim_ * num_heads_);

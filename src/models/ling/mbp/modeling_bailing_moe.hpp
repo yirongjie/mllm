@@ -124,6 +124,7 @@ public:
                      int layer_idx) {
         auto idxs = topk_idx.argsort();               // 1, 1, 1, k* batch*seq
         auto tokens_per_expert = topk_idx.bincount(); // (1, 1, 1, 0) 1, 1, 1, k
+        tokens_per_expert = tokens_per_expert.cpu().fp32();
         auto token_idxs = idxs / num_experts_per_tok; // 1, 1, 1, k* batch*seq
         int start_idx = 0;
         int end_idx = start_idx;

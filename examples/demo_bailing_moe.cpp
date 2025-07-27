@@ -18,11 +18,7 @@ int main(int argc, char **argv) {
     cmdline::parser cmdParser;
     cmdParser.add<string>("vocab", 'v', "specify mllm tokenizer model path", false, "../vocab/ling_vocab.mllm");
     cmdParser.add<string>("merge", 'e', "specify mllm merge file path", false, "../vocab/ling_merges.txt");
-#ifdef ARM
     cmdParser.add<string>("model", 'm', "specify mllm model path", false, "../models/ling-lite-1.5-kai_q4_0.mllm");
-#else
-    cmdParser.add<string>("model", 'm', "specify mllm model path", false, "../models/ling-lite-1.5-q4_0.mllm");
-#endif
     cmdParser.add<int>("limits", 'l', "max KV cache size", false, 500);
     cmdParser.add<int>("thread", 't', "num of threads", false, 4);
     cmdParser.parse_check(argc, argv);
@@ -35,6 +31,7 @@ int main(int argc, char **argv) {
 
     auto tokenizer = BaiLingTokenizer(vocab_path, merge_path);
     BailingMoeConfig config(tokens_limit);
+    // config.attn_implementation = "eager";
     // config.attn_implementation = "sage_attention";
     auto model = BailingMoeForCausalLM(config);
     model.load(model_path);

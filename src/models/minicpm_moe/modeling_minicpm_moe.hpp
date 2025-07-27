@@ -177,7 +177,6 @@ private:
 class MiniCPMForCausalLM final : public Module {
 public:
     MiniCPMForCausalLM(MiniCPMConfig &config) {
-        // KVCache_TYPE = 32;
         auto names = config.names_config;
         scale_emb = config.scale_emb;
         dim_model_base = config.dim_model_base;

@@ -25,7 +25,7 @@ const std::vector<std::string> fp32_layers = {
     "ln_q",
     "patch_embed.proj",
     // "mlp.gate.",
-    // "lm_head.weight",
+    "lm_head.weight",
 };
 const std::vector<std::string> q40_layers = {
     "embed_tokens",
