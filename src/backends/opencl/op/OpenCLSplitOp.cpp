@@ -10,8 +10,8 @@ OpenCLSplitOp::OpenCLSplitOp(Backend *bn, std::string name, int num_splits, cons
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
-    const std::string kernel_path_str = "kernel/split.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/split.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     kernel_fp32_ = clCreateKernel(program, "split_fp32", &err);
@@ -39,7 +39,7 @@ ErrorCode OpenCLSplitOp::reshape(vector<shared_ptr<Tensor>> inputs, vector<share
             outputs[i]->reshape(input->batch(), each_dims_[i], input->sequence(), input->dimension());
             break;
         case Chl::SEQUENCE:
-            outputs[i]->reshape(input->batch(), input->head(), each_dims_[i], input->sequence());
+            outputs[i]->reshape(input->batch(), input->head(), each_dims_[i], input->dimension());
             break;
         case Chl::DIMENSION:
             outputs[i]->reshape(input->batch(), input->head(), input->sequence(), each_dims_[i]);
@@ -99,7 +99,9 @@ ErrorCode OpenCLSplitOp::execute(vector<shared_ptr<Tensor>> inputs, vector<share
         cl_mem out_buf = ocl_backend_->get_cl_mem(*outputs[i]);
         int split_dim_size = each_dims_[i];
         int offset = offsets[i];
-
+        if (inner_size == 0 || split_dim_size == 0 || outer_size == 0) {
+            continue;
+        }
         clSetKernelArg(kernel_to_use, 0, sizeof(cl_mem), &in_buf);
         clSetKernelArg(kernel_to_use, 1, sizeof(cl_mem), &out_buf);
         clSetKernelArg(kernel_to_use, 2, sizeof(int), &outer_size);
@@ -112,6 +114,9 @@ ErrorCode OpenCLSplitOp::execute(vector<shared_ptr<Tensor>> inputs, vector<share
         cl_event event;
         cl_int err = clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 3, nullptr, global_work_size, nullptr, 0, nullptr, &event);
         ocl_backend_->addProfilingEvent(this->name() + "split", event);
+        if (err != CL_SUCCESS) {
+            std::cout << "clEnqueueNDRangeKernel error: split" << inner_size << " " << split_dim_size << " " << outer_size << std::endl;
+        }
         check_cl_error(err, "clEnqueueNDRangeKernel for Split");
     }
 

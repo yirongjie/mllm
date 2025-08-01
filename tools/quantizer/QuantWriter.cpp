@@ -8,7 +8,7 @@
 namespace mllm {
 
 const std::vector<std::string> fp32_layers = {
-    "norm",
+    // "norm",
     "rope",
     "bias",
     "rotary_emb",
@@ -25,7 +25,9 @@ const std::vector<std::string> fp32_layers = {
     "ln_q",
     "patch_embed.proj",
     // "mlp.gate.",
-    "lm_head.weight",
+    // "lm_head.weight",  // T
+    // "query_key_value", // T
+    // "word_embeddings", // T
 };
 const std::vector<std::string> q40_layers = {
     "embed_tokens",

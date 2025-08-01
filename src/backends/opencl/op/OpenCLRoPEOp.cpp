@@ -93,8 +93,8 @@ void OpenCLRoPEOp::_init(int threadCount) {
     if (config_.find("partial_rotary_factor") != config_.end()) partial_rotary_factor_ = config_.at("partial_rotary_factor");
     if (config_.find("max_position_embeddings") != config_.end()) pos_max_ = config_.at("max_position_embeddings");
 
-    const std::string kernel_path_str = "kernel/rope.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/rope.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
     cl_int err;
 
     kernel_llama_fp32_ = clCreateKernel(program, "rope_llama_fp32", &err);

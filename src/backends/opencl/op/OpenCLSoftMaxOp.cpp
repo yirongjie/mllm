@@ -10,14 +10,14 @@ OpenCLSoftMaxOp::OpenCLSoftMaxOp(Backend *bn, std::string name, int axis, bool d
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
     if (axis_ == DIMENSION) {
-        const std::string kernel_path_str = "kernel/softmax.cl";
+        const std::string kernel_path = "kernel/softmax.cl";
 
         std::string build_options;
         if (ocl_backend_->has_fp16_support()) {
             build_options += " -DSUPPORTS_FP16";
         }
 
-        cl_program program = ocl_backend_->getProgram(kernel_path_str, build_options);
+        cl_program program = ocl_backend_->getProgram(kernel_path, build_options);
 
         cl_int err;
 

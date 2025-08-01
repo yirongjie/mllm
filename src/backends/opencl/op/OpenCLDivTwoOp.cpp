@@ -15,15 +15,21 @@ OpenCLDivTwoOp::OpenCLDivTwoOp(Backend *bn, std::string name) :
         build_options += " -DSUPPORTS_FP16";
     }
     cl_program program = ocl_backend_->getProgram(kernel_path, build_options);
-    // cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     kernel_fp32_buffer_ = clCreateKernel(program, "div_float", &err);
     check_cl_error(err, "clCreateKernel for div_float");
     kernel_fp32_image_ = clCreateKernel(program, "div_float_image2d", &err);
     check_cl_error(err, "clCreateKernel for div_float_image2d");
+
+    // Kernel for vectorized FP16 (count must be multiple of 4)
     kernel_fp16_buffer_ = clCreateKernel(program, "div_fp16_vector", &err);
     check_cl_error(err, "clCreateKernel for div_fp16_vector");
+
+    // Kernel for scalar FP16 (handles any count)
+    kernel_fp16_scalar_ = clCreateKernel(program, "div_fp16_scalar", &err);
+    check_cl_error(err, "clCreateKernel for div_fp16_scalar");
+
     kernel_fp16_image_ = clCreateKernel(program, "div_fp16_image2d", &err);
     check_cl_error(err, "clCreateKernel for div_fp16_image2d");
 
@@ -35,6 +41,7 @@ OpenCLDivTwoOp::~OpenCLDivTwoOp() {
     if (kernel_fp32_buffer_) clReleaseKernel(kernel_fp32_buffer_);
     if (kernel_fp32_image_) clReleaseKernel(kernel_fp32_image_);
     if (kernel_fp16_buffer_) clReleaseKernel(kernel_fp16_buffer_);
+    if (kernel_fp16_scalar_) clReleaseKernel(kernel_fp16_scalar_); // Release new kernel
     if (kernel_fp16_image_) clReleaseKernel(kernel_fp16_image_);
     if (sampler_) clReleaseSampler(sampler_);
 }
@@ -85,21 +92,37 @@ ErrorCode OpenCLDivTwoOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shar
         const size_t global_work_size[2] = {(size_t)width, (size_t)height};
         clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 2, nullptr, global_work_size, nullptr, 0, nullptr, nullptr);
     } else {
-        cl_kernel kernel_to_use = (input_dtype == MLLM_TYPE_F32) ? kernel_fp32_buffer_ : kernel_fp16_buffer_;
+        // === MODIFIED LOGIC FOR BUFFER-BASED EXECUTION ===
+        cl_kernel kernel_to_use;
+        size_t count = inputs[0]->count();
+        size_t global_work_size[1];
+
+        if (input_dtype == MLLM_TYPE_F32) {
+            kernel_to_use = kernel_fp32_buffer_;
+            global_work_size[0] = count;
+        } else { // MLLM_TYPE_F16
+            if (count % 4 == 0) {
+                // Use the fast vectorized kernel if count is a multiple of 4
+                kernel_to_use = kernel_fp16_buffer_;
+                global_work_size[0] = count / 4;
+            } else {
+                // Use the robust scalar kernel for other cases
+                kernel_to_use = kernel_fp16_scalar_;
+                global_work_size[0] = count;
+            }
+        }
+
         cl_mem in0_buf = ocl_backend_->get_cl_mem(*inputs[0]);
         cl_mem in1_buf = ocl_backend_->get_cl_mem(*inputs[1]);
         cl_mem out_buf = ocl_backend_->get_cl_mem(*output);
         clSetKernelArg(kernel_to_use, 0, sizeof(cl_mem), &in0_buf);
         clSetKernelArg(kernel_to_use, 1, sizeof(cl_mem), &in1_buf);
         clSetKernelArg(kernel_to_use, 2, sizeof(cl_mem), &out_buf);
-        size_t count = inputs[0]->count();
-        if (input_dtype == MLLM_TYPE_F16) {
-            if (count % 4 != 0) {
-                throw std::runtime_error("For FP16 vector kernel, tensor count must be a multiple of 4.");
-            }
-            count /= 4;
-        }
-        const size_t global_work_size[1] = {count};
+        const int b_dim = inputs[1]->dimension();
+        const int a_dim = inputs[0]->dimension();
+        clSetKernelArg(kernel_to_use, 3, sizeof(int), &b_dim);
+        clSetKernelArg(kernel_to_use, 4, sizeof(int), &a_dim);
+
         clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 1, nullptr, global_work_size, nullptr, 0, nullptr, nullptr);
     }
     return MLLM_NO_ERROR;

@@ -22,8 +22,8 @@ OpenCLKVCacheOp::OpenCLKVCacheOp(Backend *bn, std::string name, int hidden, int 
     cache_->alloc();
     cache_->cl();
 
-    const std::string kernel_path_str = "kernel/kvcache.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/kvcache.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     // Load BSHD kernels

@@ -5,6 +5,7 @@
  * @date 2025-07-01
  *
  */
+#include "Types.hpp"
 #include "cmdline.h"
 #include "models/ling/configuration_bailing_moe.hpp"
 #include "models/ling/modeling_bailing_moe.hpp"
@@ -16,9 +17,17 @@ int main(int argc, char **argv) {
     std::iostream::sync_with_stdio(false);
 
     cmdline::parser cmdParser;
+    cmdParser.add<int>("device", 'd', "mllm backend [0:`cpu` | 1:`opencl`]", false, 0);
+    cmdParser.parse_check(argc, argv);
+    BackendType device = (BackendType)cmdParser.get<int>("device");
+    assert((device == MLLM_CPU || device == MLLM_OPENCL) && "device not supports!");
     cmdParser.add<string>("vocab", 'v', "specify mllm tokenizer model path", false, "../vocab/ling_vocab.mllm");
     cmdParser.add<string>("merge", 'e', "specify mllm merge file path", false, "../vocab/ling_merges.txt");
-    cmdParser.add<string>("model", 'm', "specify mllm model path", false, "../models/ling-lite-1.5-kai_q4_0.mllm");
+    string default_model_path = "../models/ling-lite-1.5-q4_0.mllm";
+#if defined(ARM)
+    if (device == MLLM_CPU) { default_model_path = "../models/ling-lite-1.5-kai_q4_0.mllm"; }
+#endif
+    cmdParser.add<string>("model", 'm', "specify mllm model path", false, default_model_path);
     cmdParser.add<int>("limits", 'l', "max KV cache size", false, 500);
     cmdParser.add<int>("thread", 't', "num of threads", false, 4);
     cmdParser.parse_check(argc, argv);
@@ -31,9 +40,17 @@ int main(int argc, char **argv) {
 
     auto tokenizer = BaiLingTokenizer(vocab_path, merge_path);
     BailingMoeConfig config(tokens_limit);
-    // config.attn_implementation = "eager";
+#ifdef USE_OPENCL
+    if (device == MLLM_OPENCL) {
+        config.dtype = MLLM_TYPE_F16;
+        config.attn_implementation = "eager";
+    }
+#endif
     // config.attn_implementation = "sage_attention";
     auto model = BailingMoeForCausalLM(config);
+#ifdef USE_OPENCL
+    model = model.to(device);
+#endif
     model.load(model_path);
 
     vector<string> in_strs = {

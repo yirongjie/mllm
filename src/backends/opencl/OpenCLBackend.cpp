@@ -23,6 +23,7 @@
 #include "op/OpenCLMulOp.hpp"
 #include "op/OpenCLMulTwoOp.hpp"
 #include "op/OpenCLDivOp.hpp"
+#include "op/OpenCLDivIntOp.hpp"
 #include "op/OpenCLDivTwoOp.hpp"
 #include "op/OpenCLMatmulOp.hpp"
 #include "op/OpenCLLinearOp.hpp"
@@ -791,6 +792,7 @@ void OpenCLBackend::registerOps() {
     op_creator_map_[F_MUL] = std::make_shared<OpenCLMulOpCreator>();
     op_creator_map_[F_TTMUL] = std::make_shared<OpenCLMulTwoOpCreator>();
     op_creator_map_[F_DIV] = std::make_shared<OpenCLDivOpCreator>();
+    op_creator_map_[F_DIVINT] = std::make_shared<OpenCLDivIntOpCreator>();
     op_creator_map_[F_TTDIV] = std::make_shared<OpenCLDivTwoOpCreator>();
     op_creator_map_[F_MM] = std::make_shared<OpenCLMatmulOpCreator>();
     op_creator_map_[LINEAR] = std::make_shared<OpenCLLinearOpCreator>();

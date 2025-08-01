@@ -10,8 +10,8 @@ OpenCLTransposeOp::OpenCLTransposeOp(Backend *bn, std::string name, const vector
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
-    const std::string kernel_path_str = "kernel/transpose.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/transpose.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     kernel_fp32_2d_ = clCreateKernel(program, "transpose_float_2d", &err);

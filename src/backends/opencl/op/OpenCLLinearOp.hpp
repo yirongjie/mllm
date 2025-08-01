@@ -29,8 +29,9 @@ private:
     cl_kernel kernel_fp16_transb_bias_ = nullptr;
     cl_kernel kernel_fp16_q4_0_transb_bias_ = nullptr;
     cl_kernel kernel_fp32_q4_0_transb_bias_ = nullptr;
-    cl_kernel kernel_gemv_fp32_q4_0_transb_bias_ = nullptr; // GEMV
-    cl_kernel kernel_gemv_fp16_q4_0_transb_bias_ = nullptr; // GEMV
+    cl_kernel kernel_gemv_fp32_q4_0_transb_bias_ = nullptr;        // GEMV
+    cl_kernel kernel_gemv_fp16_q4_0_transb_bias_ = nullptr;        // GEMV
+    cl_kernel kernel_gemv_fp16_q4_0_transb_bias_half16_ = nullptr; // GEMV for K%16==0
 
     cl_kernel kernel_fp32_q4_0_transb_bias_image2d_ = nullptr;
     cl_kernel kernel_fp16_q4_0_transb_bias_image2d_ = nullptr;

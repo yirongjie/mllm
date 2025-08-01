@@ -443,7 +443,7 @@ Tensor Tensor::operator/(double data) {
 Tensor Tensor::operator/(int data) {
     OpParam param;
     param["data"] = (float)data;
-    return runFunc({name() + "-div"}, F_DIV, param,
+    return runFunc({name() + "-div"}, F_DIVINT, param,
                    {*this})[0];
 }
 

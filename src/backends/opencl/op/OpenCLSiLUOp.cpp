@@ -12,8 +12,8 @@ OpenCLSiLUOp::OpenCLSiLUOp(Backend *bn, std::string name) :
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
-    const std::string kernel_path_str = "kernel/silu.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/silu.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     kernel_fp32_ = clCreateKernel(program, "silu_fp32", &err);

@@ -8,8 +8,6 @@
 #include <iostream>
 #include <string>
 
-#define TILE_SIZE 16
-
 namespace mllm {
 
 OpenCLLinearOp::OpenCLLinearOp(Backend *bn, string opName, int in_features, int out_features, bool bias) :
@@ -39,6 +37,10 @@ OpenCLLinearOp::OpenCLLinearOp(Backend *bn, string opName, int in_features, int 
     check_cl_error(err, "CreateKernel gemv_fp32_q4_0_transb_bias");
     kernel_gemv_fp16_q4_0_transb_bias_ = clCreateKernel(program, "gemv_fp16_q4_0_transb_bias", &err);
     check_cl_error(err, "CreateKernel gemv_fp16_q4_0_transb_bias");
+    if (ocl_backend_->has_fp16_support()) {
+        kernel_gemv_fp16_q4_0_transb_bias_half16_ = clCreateKernel(program, "gemv_fp16_q4_0_transb_bias_half16", &err);
+        check_cl_error(err, "CreateKernel gemv_fp16_q4_0_transb_bias_half16");
+    }
 
     kernel_fp32_q4_0_transb_bias_image2d_ = clCreateKernel(program, "gemm_fp32_q4_0_transb_bias_image_pipe", &err);
     check_cl_error(err, "CreateKernel gemm_fp32_q4_0_transb_bias_image_pipe");
@@ -57,6 +59,7 @@ OpenCLLinearOp::~OpenCLLinearOp() {
     if (kernel_fp16_q4_0_transb_bias_) clReleaseKernel(kernel_fp16_q4_0_transb_bias_);
     if (kernel_gemv_fp32_q4_0_transb_bias_) clReleaseKernel(kernel_gemv_fp32_q4_0_transb_bias_);
     if (kernel_gemv_fp16_q4_0_transb_bias_) clReleaseKernel(kernel_gemv_fp16_q4_0_transb_bias_);
+    if (kernel_gemv_fp16_q4_0_transb_bias_half16_) clReleaseKernel(kernel_gemv_fp16_q4_0_transb_bias_half16_);
     if (kernel_fp32_q4_0_transb_bias_image2d_) clReleaseKernel(kernel_fp32_q4_0_transb_bias_image2d_);
     if (kernel_fp16_q4_0_transb_bias_image2d_) clReleaseKernel(kernel_fp16_q4_0_transb_bias_image2d_);
     if (kernel_gemv_fp32_q4_0_transb_bias_image2d_) clReleaseKernel(kernel_gemv_fp32_q4_0_transb_bias_image2d_);
@@ -74,15 +77,15 @@ ErrorCode OpenCLLinearOp::reshape(vector<shared_ptr<Tensor>> inputs, vector<shar
 
     outputs[0]->reshape(inputs[0]->batch(), inputs[0]->head(), inputs[0]->sequence(), out_features_);
     outputs[0]->setDtype(inputs[0]->dtype());
-#if !defined(__APPLE__) || !defined(__aarch64__)
+    // #if !defined(__APPLE__) || !defined(__aarch64__)
     // const size_t max_image_width = ocl_backend_->getMaxImage2dWidth();
-    // if (out_features_ % 4 == 0 && (out_features_ / 4) <= max_image_width) {
+    // if (out_features_ % 4 == 0 && (out_features_ / 4) <= max_image_width) { // inputs[0]->sequence() == 1 &&
     //     auto &out_mem = outputs[0]->device_memory();
     //     out_mem.type = MEM_TYPE_IMAGE_2D;
     //     out_mem.image_width = out_features_ / 4;
     //     out_mem.image_height = inputs[0]->batch() * inputs[0]->head() * inputs[0]->sequence();
     // }
-#endif
+    // #endif
     return MLLM_NO_ERROR;
 }
 
@@ -187,6 +190,11 @@ ErrorCode OpenCLLinearOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shar
                 kernel_to_use = kernel_gemv_fp32_q4_0_transb_bias_;
             } else {                                                // MLLM_TYPE_F16
                 kernel_to_use = kernel_gemv_fp16_q4_0_transb_bias_; //
+                if (K % 16 == 0 && kernel_gemv_fp16_q4_0_transb_bias_half16_ != nullptr) {
+                    kernel_to_use = kernel_gemv_fp16_q4_0_transb_bias_half16_;
+                } else {
+                    kernel_to_use = kernel_gemv_fp16_q4_0_transb_bias_;
+                }
             }
             int arg_idx = 0;
             clSetKernelArg(kernel_to_use, arg_idx++, sizeof(cl_mem), &a_mem);
@@ -267,28 +275,22 @@ ErrorCode OpenCLLinearOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shar
         clSetKernelArg(kernel_to_use, arg_idx++, sizeof(int), &K_b);
         clSetKernelArg(kernel_to_use, arg_idx++, sizeof(int), &has_bias_flag);
         if (kernel_to_use == kernel_fp16_q4_0_transb_bias_ && ocl_backend_->has_fp16_support()) {
-            // [高性能版] 内核具有不同的 tiling 和 work-group size 定义
-            // #define TILE_M 64
-            // #define TILE_N 64
-            // #define THREADS_X 8
-            // #define THREADS_Y 8
             const size_t TILE_M = 64;
             const size_t TILE_N = 64;
             const size_t THREADS_X = 8;
             const size_t THREADS_Y = 8;
-
             const size_t global_work_size[3] = {
                 (size_t)ceil((float)N / TILE_N) * THREADS_X,
                 (size_t)ceil((float)M / TILE_M) * THREADS_Y,
                 (size_t)(B_size * H_size)};
             const size_t local_work_size[3] = {THREADS_X, THREADS_Y, 1};
-
             cl_event event;
             cl_int err = clEnqueueNDRangeKernel(ocl_backend_->getQueue(), kernel_to_use, 3, nullptr, global_work_size, local_work_size, 0, nullptr, &event);
             ocl_backend_->addProfilingEvent(this->name() + "_tiled_q4", event);
             check_cl_error(err, "EnqueueNDRangeKernel tiled gemm_fp16_q4_0_transb_bias");
 
         } else {
+            const size_t TILE_SIZE = 16;
             const size_t global_work_size[3] = {
                 (size_t)(((N + TILE_SIZE - 1) / TILE_SIZE) * TILE_SIZE),
                 (size_t)(((M + TILE_SIZE - 1) / TILE_SIZE) * TILE_SIZE),

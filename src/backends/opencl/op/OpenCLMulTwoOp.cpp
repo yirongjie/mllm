@@ -9,8 +9,12 @@ OpenCLMulTwoOp::OpenCLMulTwoOp(Backend *bn, std::string name) :
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
-    const std::string kernel_path_str = "kernel/mul.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/mul.cl";
+    std::string build_options;
+    if (ocl_backend_->has_fp16_support()) {
+        build_options += " -DSUPPORTS_FP16";
+    }
+    cl_program program = ocl_backend_->getProgram(kernel_path, build_options);
 
     cl_int err;
     kernel_fp32_buffer_ = clCreateKernel(program, "mul_float", &err);
@@ -87,10 +91,14 @@ ErrorCode OpenCLMulTwoOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shar
         clSetKernelArg(kernel_to_use, 0, sizeof(cl_mem), &in0_buf);
         clSetKernelArg(kernel_to_use, 1, sizeof(cl_mem), &in1_buf);
         clSetKernelArg(kernel_to_use, 2, sizeof(cl_mem), &out_buf);
+        const int b_dim = inputs[1]->dimension();
+        const int a_dim = inputs[0]->dimension();
+        clSetKernelArg(kernel_to_use, 3, sizeof(int), &b_dim);
+        clSetKernelArg(kernel_to_use, 4, sizeof(int), &a_dim);
         size_t count = inputs[0]->count();
         if (input_dtype == MLLM_TYPE_F16) {
             if (count % 4 != 0) {
-                throw std::runtime_error("For FP16 vector kernel, tensor count must be a multiple of 4.");
+                throw std::runtime_error("[mulTwo]For FP16 vector kernel, tensor count must be a multiple of 4.");
             }
             count /= 4;
         }

@@ -60,8 +60,8 @@ ErrorCode OpenCLBinCountOp::setUp(vector<shared_ptr<Tensor>> inputs, vector<shar
 ErrorCode OpenCLBinCountOp::execute(vector<shared_ptr<Tensor>> inputs, vector<shared_ptr<Tensor>> outputs) {
     auto input = inputs[0];
     auto output = outputs[0];
+    // ocl_backend_->finishQueue(); // todo 同步问题
 
-    // 步骤 1 & 2: 查找 max_val 并分配输出 (与之前相同)
     input->cpu();
     int size = input->dimension();
     int max_val = 0;
@@ -80,18 +80,18 @@ ErrorCode OpenCLBinCountOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sh
     int output_size = max_val + 1;
     output->reshape(1, 1, 1, output_size);
     output->alloc();
-
-    // 步骤 3: 创建并清零临时整数缓冲区 (与之前相同)
     cl_int err;
     cl_mem tmp_count_buffer = clCreateBuffer(ocl_backend_->getContext(), CL_MEM_READ_WRITE, output_size * sizeof(int), nullptr, &err);
     check_cl_error(err, "clCreateBuffer for tmp_count_buffer");
+
     int zero = 0;
-    err = clEnqueueFillBuffer(ocl_backend_->getQueue(), tmp_count_buffer, &zero, sizeof(int), 0, output_size * sizeof(int), 0, nullptr, nullptr);
+    cl_event fill_event;
+    err = clEnqueueFillBuffer(ocl_backend_->getQueue(), tmp_count_buffer, &zero, sizeof(int), 0, output_size * sizeof(int), 0, nullptr, &fill_event);
     check_cl_error(err, "clEnqueueFillBuffer for tmp_count_buffer");
+    ocl_backend_->addProfilingEvent("bincount_fill_zero", fill_event);
 
     input->cl();
 
-    // 步骤 4: 执行 bincount 内核 (与之前相同)
     cl_kernel count_kernel = (input->dtype() == MLLM_TYPE_F32) ? kernel_map_["bincount_count_fp32"] : kernel_map_["bincount_count_fp16"];
     cl_mem in_buf = ocl_backend_->get_cl_mem(*input);
     clSetKernelArg(count_kernel, 0, sizeof(cl_mem), &in_buf);
@@ -103,11 +103,10 @@ ErrorCode OpenCLBinCountOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sh
     const size_t global_work_size = ((size > 0 ? size : 1) + local_work_size - 1) / local_work_size * local_work_size;
 
     cl_event count_event;
-    err = clEnqueueNDRangeKernel(ocl_backend_->getQueue(), count_kernel, 1, nullptr, &global_work_size, &local_work_size, 0, nullptr, &count_event);
+    err = clEnqueueNDRangeKernel(ocl_backend_->getQueue(), count_kernel, 1, nullptr, &global_work_size, &local_work_size, 1, &fill_event, &count_event);
     check_cl_error(err, "clEnqueueNDRangeKernel for bincount_count");
     ocl_backend_->addProfilingEvent("bincount_count", count_event);
 
-    // 步骤 5: 执行类型转换内核
     cl_kernel cast_kernel = (output->dtype() == MLLM_TYPE_F32) ? kernel_map_["cast_int_to_float"] : kernel_map_["cast_int_to_half"];
     cl_mem out_buf = ocl_backend_->get_cl_mem(*output);
     clSetKernelArg(cast_kernel, 0, sizeof(cl_mem), &tmp_count_buffer);
@@ -116,30 +115,15 @@ ErrorCode OpenCLBinCountOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sh
 
     const size_t cast_global_work_size = ((output_size > 0 ? output_size : 1) + local_work_size - 1) / local_work_size * local_work_size;
     cl_event cast_event;
-
-    // =========================================================================
-    // === 主要修正点 ===
-    // 告诉 cast_kernel 必须等待 count_event 完成。
-    // 第 7 个参数是等待事件的数量 (1)。
-    // 第 8 个参数是等待事件的列表 (&count_event)。
-    err = clEnqueueNDRangeKernel(ocl_backend_->getQueue(), cast_kernel, 1, nullptr,
-                                 &cast_global_work_size, &local_work_size,
-                                 1, &count_event, &cast_event);
-    // =========================================================================
-
+    err = clEnqueueNDRangeKernel(ocl_backend_->getQueue(), cast_kernel, 1, nullptr, &cast_global_work_size, &local_work_size, 1, &count_event, &cast_event);
     check_cl_error(err, "clEnqueueNDRangeKernel for cast");
     ocl_backend_->addProfilingEvent("bincount_cast", cast_event);
-
-    // 步骤 6: 释放临时缓冲区
-    // OpenCL 会保证在 cast_event 完成后才真正释放，所以这里是安全的
     clReleaseMemObject(tmp_count_buffer);
-
-    // 我们应该等待最终的事件完成，以确保分析器能正确捕获
     clWaitForEvents(1, &cast_event);
+    clReleaseEvent(fill_event);
     clReleaseEvent(count_event);
     clReleaseEvent(cast_event);
 
     return MLLM_NO_ERROR;
 }
-
 } // namespace mllm

@@ -19,19 +19,27 @@ int main(int argc, char **argv) {
     std::iostream::sync_with_stdio(false);
 
     cmdline::parser cmdParser;
+    cmdParser.add<int>("device", 'd', "mllm backend [0:`cpu` | 1:`opencl`]", false, 1);
+    cmdParser.parse_check(argc, argv);
+    BackendType device = (BackendType)cmdParser.get<int>("device");
+    assert((device == MLLM_CPU || device == MLLM_OPENCL) && "device not supports!");
     cmdParser.add<string>("vocab", 'v', "specify mllm tokenizer model path", false, "../vocab/qwen2.5_vocab.mllm");
     cmdParser.add<string>("merge", 'e', "specify mllm merge file path", false, "../vocab/qwen2.5_merges.txt");
-#ifdef ARM
+    string default_model_path = "../models/qwen-2.5-1.5b-instruct-q4_0_4_4.mllm";
+    string default_model_billion = "1.5b";
+#if defined(ARM)
+    default_model_billion = "1.5b-lm";
+    if (device == MLLM_CPU) {
+        default_model_path = "../models/qwen-2.5-1.5b-instruct-kai_q4_0_lm.mllm";
+    }
 #ifdef USE_OPENCL
-    cmdParser.add<string>("model", 'm', "specify mllm model path", false, "../models/qwen-2.5-1.5b-instruct-q4_0_lm.mllm");
-#else
-    cmdParser.add<string>("model", 'm', "specify mllm model path", false, "../models/qwen-2.5-1.5b-instruct-kai_q4_0_lm.mllm");
+    else if (device == MLLM_OPENCL) {
+        default_model_path = "../models/qwen-2.5-1.5b-instruct-q4_0_lm.mllm";
+    }
 #endif
-    cmdParser.add<string>("billion", 'b', "[0.5B | 1.8B | 1.5B | 3B |]", false, "1.5b-lm");
-#else
-    cmdParser.add<string>("model", 'm', "specify mllm model path", false, "../models/qwen-2.5-1.5b-instruct-q4_0_4_4.mllm");
-    cmdParser.add<string>("billion", 'b', "[0.5B | 1.8B | 1.5B | 3B |]", false, "1.5b");
 #endif
+    cmdParser.add<string>("model", 'm', "specify mllm model path", false, default_model_path);
+    cmdParser.add<string>("billion", 'b', "[0.5B | 1.8B | 1.5B | 3B |]", false, default_model_billion);
     cmdParser.add<int>("limits", 'l', "max KV cache size", false, 550);
     cmdParser.add<int>("thread", 't', "num of threads", false, 4);
     cmdParser.parse_check(argc, argv);
@@ -46,13 +54,15 @@ int main(int argc, char **argv) {
     auto tokenizer = QWenTokenizer(vocab_path, merge_path);
     QWenConfig config(tokens_limit, model_billion);
 #ifdef USE_OPENCL
-    config.dtype = MLLM_TYPE_F16;
-    config.attn_implementation = "eager";
+    if (device == MLLM_OPENCL) {
+        config.dtype = MLLM_TYPE_F16;
+        // config.attn_implementation = "eager";
+    }
 #endif
     // config.attn_implementation = "sage_attention";
     auto model = QWenForCausalLM(config);
 #ifdef USE_OPENCL
-    model = model.cl();
+    model = model.to(device);
 #endif
     model.load(model_path);
 

@@ -10,8 +10,8 @@ OpenCLAddOp::OpenCLAddOp(Backend *bn, std::string name, float data) :
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
-    const std::string kernel_path_str = "kernel/add.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/add.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     kernel_fp32_buffer_ = clCreateKernel(program, "add_scalar_float", &err);

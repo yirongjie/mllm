@@ -96,7 +96,6 @@ ErrorCode OpenCLArgSortOp::execute(vector<shared_ptr<Tensor>> inputs, vector<sha
     int num_stages = (N > 1) ? std::log2(power_of_2_N) : 0;
 
     for (int stage = 0; stage < num_stages; ++stage) {
-        // ✨ ✨ ✨ [关键修正] 将内层循环反向，从大距离到小距离进行比较 ✨ ✨ ✨
         for (int pass = stage; pass >= 0; --pass) {
             size_t global_work_size_sort[2] = {(size_t)power_of_2_N / 2, (size_t)batch_size};
 

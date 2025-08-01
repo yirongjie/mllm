@@ -1,6 +1,4 @@
-#if defined(SUPPORTS_FP16)
 #pragma OPENCL EXTENSION cl_khr_fp16 : enable
-#endif
 
 // ============================================================================
 //  通用内核 (FP32 和 索引初始化)
@@ -37,18 +35,29 @@ __kernel void bitonic_argsort_step_fp32(
     if (descending) {
         sort_increasing = !sort_increasing;
     }
-    if (iy < N) {
+
+    if (ix < N) { // 仅当比较对的第一个元素在界内时才处理
         const int row_offset = row * N;
         const int global_ix = row_offset + ix;
         const int global_iy = row_offset + iy;
+
         float val1 = values[global_ix];
-        float val2 = values[global_iy];
+        // 如果 iy 越界, 根据排序方向，将其值视作 INFINITY (无穷大) 或 -INFINITY (负无穷大)
+        float val2 = (iy < N) ? values[global_iy] : (descending ? -INFINITY : INFINITY);
+
         if ((val1 > val2) == sort_increasing) {
+            // 当需要交换时，只对真实存在的元素进行写操作
+            int index_from_ix = indices[global_ix];
+            int index_from_iy = (iy < N) ? indices[global_iy] : -1; // 用-1作为无效索引哨兵
+
             values[global_ix] = val2;
-            values[global_iy] = val1;
-            int temp_idx = indices[global_ix];
-            indices[global_ix] = indices[global_iy];
-            indices[global_iy] = temp_idx;
+            indices[global_ix] = index_from_iy;
+
+            // 只有当 iy 也在界内时，才把 val1 的值和原始索引写入 iy 位置
+            if (iy < N) {
+                values[global_iy] = val1;
+                indices[global_iy] = index_from_ix;
+            }
         }
     }
 }
@@ -91,18 +100,33 @@ __kernel void bitonic_argsort_step_fp16(
     if (descending) {
         sort_increasing = !sort_increasing;
     }
-    if (iy < N) {
+
+    if (ix < N) {
         const int row_offset = row * N;
         const int global_ix = row_offset + ix;
         const int global_iy = row_offset + iy;
+
         half val1 = values[global_ix];
-        half val2 = values[global_iy];
+
+        // ====================== ✨✨✨ 核心修正区域 as_half ✨✨✨ ======================
+        // 修正: 显式地将整型字面量转换为 ushort (16-bit) 来解决 as_half 的歧义
+        half infinity_h = as_half((ushort)0x7C00);
+        half neg_infinity_h = as_half((ushort)0xFC00);
+        // ==========================================================================
+
+        half val2 = (iy < N) ? values[global_iy] : (descending ? neg_infinity_h : infinity_h);
+
         if ((val1 > val2) == sort_increasing) {
+            int index_from_ix = indices[global_ix];
+            int index_from_iy = (iy < N) ? indices[global_iy] : -1;
+
             values[global_ix] = val2;
-            values[global_iy] = val1;
-            int temp_idx = indices[global_ix];
-            indices[global_ix] = indices[global_iy];
-            indices[global_iy] = temp_idx;
+            indices[global_ix] = index_from_iy;
+
+            if (iy < N) {
+                values[global_iy] = val1;
+                indices[global_iy] = index_from_ix;
+            }
         }
     }
 }
@@ -157,7 +181,9 @@ static ushort float_to_ushort(float f) {
     uint sign = (u >> 16) & 0x8000;
     int exponent = ((u >> 23) & 0xFF) - 127;
     uint mantissa = u & 0x7FFFFF;
-    if (exponent > 15) { return sign | 0x7C00; } // Infinity
+    if (exponent > 15) {
+        return sign | 0x7C00;
+    } // Infinity
     if (exponent < -14) {
         mantissa = (mantissa | 0x800000) >> (1 - exponent);
         return sign | (mantissa >> 13);
@@ -187,25 +213,31 @@ __kernel void bitonic_argsort_step_fp16(
         sort_increasing = !sort_increasing;
     }
 
-    if (iy < N) {
+    if (ix < N) {
         const int row_offset = row * N;
         const int global_ix = row_offset + ix;
         const int global_iy = row_offset + iy;
 
         // 核心: 读出 ushort, 转换为 float 进行比较
         float val1 = ushort_to_float(values[global_ix]);
-        float val2 = ushort_to_float(values[global_iy]);
+        float val2 = (iy < N) ? ushort_to_float(values[global_iy]) : (descending ? -INFINITY : INFINITY);
 
         if ((val1 > val2) == sort_increasing) {
             // 交换时，直接交换原始的 ushort 值
-            ushort temp_val = values[global_ix];
-            values[global_ix] = values[global_iy];
-            values[global_iy] = temp_val;
+            ushort val_from_ix = values[global_ix];
+            // 如果 iy 越界，需要一个代表无穷大的 ushort 值
+            ushort val_from_iy = (iy < N) ? values[global_iy] : float_to_ushort(val2);
+            values[global_ix] = val_from_iy;
 
             // 交换索引
-            int temp_idx = indices[global_ix];
-            indices[global_ix] = indices[global_iy];
-            indices[global_iy] = temp_idx;
+            int temp_idx_from_ix = indices[global_ix];
+            int temp_idx_from_iy = (iy < N) ? indices[global_iy] : -1;
+            indices[global_ix] = temp_idx_from_iy;
+
+            if (iy < N) {
+                values[global_iy] = val_from_ix;
+                indices[global_iy] = temp_idx_from_ix;
+            }
         }
     }
 }

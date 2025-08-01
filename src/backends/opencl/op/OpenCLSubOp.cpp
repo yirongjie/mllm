@@ -12,8 +12,8 @@ OpenCLSubOp::OpenCLSubOp(Backend *bn, std::string name, float data) :
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
     // 复用 add.cl 内核文件
-    const std::string kernel_path_str = "kernel/add.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/add.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     // 注意：我们创建的是 add_scalar_* 内核，因为我们将在内核中通过数学技巧实现减法

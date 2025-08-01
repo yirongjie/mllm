@@ -9,8 +9,8 @@ OpenCLTopkOp::OpenCLTopkOp(Backend *bn, std::string name, int k, Chl dim) :
     ocl_backend_ = dynamic_cast<OpenCLBackend *>(backend_);
     if (ocl_backend_ == nullptr) throw std::runtime_error("Backend is not OpenCLBackend");
 
-    const std::string kernel_path_str = "kernel/topk.cl";
-    cl_program program = ocl_backend_->getProgram(kernel_path_str);
+    const std::string kernel_path = "kernel/topk.cl";
+    cl_program program = ocl_backend_->getProgram(kernel_path);
 
     cl_int err;
     kernel_fp32_ = clCreateKernel(program, "topk_fp32", &err);

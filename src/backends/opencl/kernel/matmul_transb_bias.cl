@@ -386,6 +386,7 @@ __kernel void gemm_fp32_q4_0_transb_bias(
 #if defined(SUPPORTS_FP16)
 
 // ---------- [高性能版 - 向量化 + 并行规约] ----------
+
 __kernel void gemv_fp16_q4_0_transb_bias(
     __global const half *A,
     __global const block_q4_0 *B,
@@ -444,6 +445,132 @@ __kernel void gemv_fp16_q4_0_transb_bias(
         }
         barrier(CLK_LOCAL_MEM_FENCE);
     }
+    if (local_id == 0) {
+        float final_val = partial_sums[0];
+        if (has_bias != 0) {
+            final_val += bias[n];
+        }
+        const long c_idx = (long)b * H * N + (long)h * N + n;
+        vstore_half_rte(final_val, 0, &C[c_idx]);
+    }
+}
+
+// #pragma OPENCL EXTENSION cl_khr_fp16 : enable
+
+// 定义一个 half16 向量的横向求和辅助函数
+inline float hsum_half16(half16 v) {
+    half8 r1 = v.lo + v.hi;
+    half4 r2 = r1.lo + r1.hi;
+    half2 r3 = r2.lo + r2.hi;
+    return (float)(r3.x + r3.y);
+}
+
+__kernel void gemv_fp16_q4_0_transb_bias_half16(
+    __global const half *A,
+    __global const block_q4_0 *B,
+    __global const float *bias,
+    __global half *C,
+    const int K,
+    const int N,
+    const int H,
+    const int has_bias) {
+    const int n = get_group_id(0);
+    const int bh_idx = get_group_id(1);
+    const int b = bh_idx / H;
+    const int h = bh_idx % H;
+    if (n >= N) return;
+
+    const int local_id = get_local_id(0);
+    const int wg_size = get_local_size(0);
+
+    // 使用 float 累加器保证精度（推荐）
+    float private_acc = 0.0f;
+    // 若要追求极致速度（有精度风险），可替换为下一行
+    // half private_acc = 0.0h;
+
+    // 使用 float 局部内存保证精度（推荐）
+    __local float partial_sums[256];
+    // 若要追求极致速度，可替换为下一行
+    // __local half partial_sums[256];
+
+    const long a_base_idx = (long)b * H * K + (long)h * K;
+    const long b_row_offset_blocks = (long)b * N * H * (K / QK4_0) + (long)n * H * (K / QK4_0) + (long)h * (K / QK4_0);
+
+    // K维度被切分为大小为 QK4_0 (32) 的块
+    const int num_k_blocks = K / QK4_0;
+
+    for (int k_block_idx = local_id; k_block_idx < num_k_blocks; k_block_idx += wg_size) {
+        const __global block_q4_0 *b_block_ptr = &B[b_row_offset_blocks + k_block_idx];
+        const half d_b = b_block_ptr->d;
+
+        // QK4_0 = 32, a_ptr 指向一个32个half的块
+        const __global half *a_ptr = A + a_base_idx + k_block_idx * QK4_0;
+
+        // ** 优化核心：一次处理16个元素 **
+        // 处理块的前半部分 (0-15)
+        const half16 a_vals_lo = vload16(0, a_ptr);
+        const uchar8 q_packed_lo = vload8(0, b_block_ptr->qs); // 加载8个uchar (包含16个4-bit值)
+
+        // 高效解量化
+        char16 b_s_lo;
+        b_s_lo.s0 = (q_packed_lo.s0 & 0x0F) - 8;
+        b_s_lo.s1 = (q_packed_lo.s0 >> 4) - 8;
+        b_s_lo.s2 = (q_packed_lo.s1 & 0x0F) - 8;
+        b_s_lo.s3 = (q_packed_lo.s1 >> 4) - 8;
+        b_s_lo.s4 = (q_packed_lo.s2 & 0x0F) - 8;
+        b_s_lo.s5 = (q_packed_lo.s2 >> 4) - 8;
+        b_s_lo.s6 = (q_packed_lo.s3 & 0x0F) - 8;
+        b_s_lo.s7 = (q_packed_lo.s3 >> 4) - 8;
+        b_s_lo.s8 = (q_packed_lo.s4 & 0x0F) - 8;
+        b_s_lo.s9 = (q_packed_lo.s4 >> 4) - 8;
+        b_s_lo.sa = (q_packed_lo.s5 & 0x0F) - 8;
+        b_s_lo.sb = (q_packed_lo.s5 >> 4) - 8;
+        b_s_lo.sc = (q_packed_lo.s6 & 0x0F) - 8;
+        b_s_lo.sd = (q_packed_lo.s6 >> 4) - 8;
+        b_s_lo.se = (q_packed_lo.s7 & 0x0F) - 8;
+        b_s_lo.sf = (q_packed_lo.s7 >> 4) - 8;
+
+        const half16 b_vals_dequant_lo = convert_half16(b_s_lo) * d_b;
+        private_acc += hsum_half16(a_vals_lo * b_vals_dequant_lo);
+
+        // 处理块的后半部分 (16-31)
+        const half16 a_vals_hi = vload16(0, a_ptr + 16);
+        const uchar8 q_packed_hi = vload8(0, b_block_ptr->qs + 8); // 加载后8个uchar
+
+        char16 b_s_hi;
+        b_s_hi.s0 = (q_packed_hi.s0 & 0x0F) - 8;
+        b_s_hi.s1 = (q_packed_hi.s0 >> 4) - 8;
+        b_s_hi.s2 = (q_packed_hi.s1 & 0x0F) - 8;
+        b_s_hi.s3 = (q_packed_hi.s1 >> 4) - 8;
+        b_s_hi.s4 = (q_packed_hi.s2 & 0x0F) - 8;
+        b_s_hi.s5 = (q_packed_hi.s2 >> 4) - 8;
+        b_s_hi.s6 = (q_packed_hi.s3 & 0x0F) - 8;
+        b_s_hi.s7 = (q_packed_hi.s3 >> 4) - 8;
+        b_s_hi.s8 = (q_packed_hi.s4 & 0x0F) - 8;
+        b_s_hi.s9 = (q_packed_hi.s4 >> 4) - 8;
+        b_s_hi.sa = (q_packed_hi.s5 & 0x0F) - 8;
+        b_s_hi.sb = (q_packed_hi.s5 >> 4) - 8;
+        b_s_hi.sc = (q_packed_hi.s6 & 0x0F) - 8;
+        b_s_hi.sd = (q_packed_hi.s6 >> 4) - 8;
+        b_s_hi.se = (q_packed_hi.s7 & 0x0F) - 8;
+        b_s_hi.sf = (q_packed_hi.s7 >> 4) - 8;
+
+        const half16 b_vals_dequant_hi = convert_half16(b_s_hi) * d_b;
+        private_acc += hsum_half16(a_vals_hi * b_vals_dequant_hi);
+    }
+
+    partial_sums[local_id] = private_acc;
+    barrier(CLK_LOCAL_MEM_FENCE);
+
+    // 并行规约
+    for (int offset = wg_size / 2; offset > 0; offset >>= 1) {
+        if (local_id < offset) {
+            partial_sums[local_id] += partial_sums[local_id + offset];
+        }
+        barrier(CLK_LOCAL_MEM_FENCE);
+    }
+
+    // 第一个线程写入最终结果
     if (local_id == 0) {
         float final_val = partial_sums[0];
         if (has_bias != 0) {
@@ -670,6 +797,7 @@ __kernel void gemm_fp16_q4_0_transb_bias(
         }
     }
 }
+
 #else
 // ---------- [兼容版] ----------
 __kernel void gemm_fp16_q4_0_transb_bias(
@@ -805,88 +933,133 @@ __kernel void gemm_fp32_q4_0_transb_bias_image_pipe(
 // ==================================================================
 // 8. FP16 * Q4_0 Fused GEMM + Bias Kernel (Image Pipe)
 // ==================================================================
-#if defined(DSUPPORTS_FP16)
+#if defined(SUPPORTS_FP16)
+/*
 __kernel void gemm_fp16_q4_0_transb_bias_image_pipe(
     sampler_t sampler,
-    __read_only image2d_t A,      // 输入矩阵 A, 形状 [M, K], 映射为 [K/4, M] 的 half4 Image
-    __global const block_q4_0 *B, // 权重矩阵 B, 形状 [N, K]
-    __global const float *bias,   // 偏置向量, 形状 [N]
-    __write_only image2d_t C,     // 输出矩阵 C, 形状 [M, N], 映射为 [N/4, M] 的 half4 Image
-    const int M, const int K, const int N,
-    const int H, const int K_b, // H 和 K_b 在此内核中不直接使用，但为保持函数签名兼容而保留
+    __read_only image2d_t A,
+    __global const block_q4_0 *B,
+    __global const float *bias,
+    __write_only image2d_t C,
+    const int K, const int N,
+    const int H,
     const int has_bias) {
-    // 1. 并行策略: 每个工作项计算输出C的一个像素(float4)
-    // gx 对应 N 维度 (输出图像宽度), gy 对应 M 维度 (输出图像高度)
+    // 1. 并行策略: 每个工作项计算一个输出像素 (float4)
     const int gx = get_global_id(0);
-    const int gy = get_global_id(1);
     const int n_start = gx * 4;
-
-    // 边界检查
-    if (n_start >= N || gy >= M) {
-        return;
-    }
+    if (n_start >= N) { return; }
 
     // 2. 寄存器累加器
     float4 acc = (float4)(0.0f);
-
     const int K_blocks = K / 32;
-    const long n_stride = K_blocks; // B矩阵中N维度的步长（以block为单位）
-    const int K_vec_size = K / 4;   // K维度可以被4整除的向量部分
+    const long n_stride = K_blocks;
+    const int K_vec_size = K / 4;
 
-    // 3. 核心计算循环：沿K维度4倍展开
+    // 3. 核心计算循环：沿K维度4倍展开, 深度优化指令级并行
     for (int k_vec = 0; k_vec < K_vec_size; ++k_vec) {
         const int k = k_vec * 4;
 
-        // a. 向量化读取A: 一次读取一个 half4 (对应K维度的4个元素)
-        // gy 直接对应M维度的行索引
-        half4 a_pixel_h = read_imageh(A, sampler, (int2)(k_vec, gy));
+        // a. 向量化读取A
+        half4 a_pixel_h = read_imageh(A, sampler, (int2)(k_vec, 0));
         float4 a_vals = convert_float4(a_pixel_h);
 
-        // b. 实时解量化4组B的值 (每组4个, 共16个b值)
-        // b_vals_k0 对应 A[k]   要乘以的 B[n_start:n_start+3, k]
-        // b_vals_k1 对应 A[k+1] 要乘以的 B[n_start:n_start+3, k+1]
-        // ...
+        // b. 为 a_vals 的每个分量并行准备权重向量，打破依赖
+        // --- 解量化与 a_vals.x (k+0) 相乘的 b_vals_k0 ---
+        const int k0_block_idx = (k + 0) / 32;
+        const int k0_in_block = (k + 0) % 32;
+        const long b_idx0_k0 = (long)(n_start + 0) * n_stride + k0_block_idx;
+        const long b_idx1_k0 = (long)(n_start + 1) * n_stride + k0_block_idx;
+        const long b_idx2_k0 = (long)(n_start + 2) * n_stride + k0_block_idx;
+        const long b_idx3_k0 = (long)(n_start + 3) * n_stride + k0_block_idx;
+        const float d0_k0 = vload_half(0, (__global half *)(&(B[b_idx0_k0].d)));
+        const float d1_k0 = vload_half(0, (__global half *)(&(B[b_idx1_k0].d)));
+        const float d2_k0 = vload_half(0, (__global half *)(&(B[b_idx2_k0].d)));
+        const float d3_k0 = vload_half(0, (__global half *)(&(B[b_idx3_k0].d)));
+        const uchar qp0_k0 = B[b_idx0_k0].qs[k0_in_block % 16];
+        const uchar qp1_k0 = B[b_idx1_k0].qs[k0_in_block % 16];
+        const uchar qp2_k0 = B[b_idx2_k0].qs[k0_in_block % 16];
+        const uchar qp3_k0 = B[b_idx3_k0].qs[k0_in_block % 16];
+        const char qn0_k0 = (k0_in_block < 16) ? ((qp0_k0 & 0x0F) - 8) : ((qp0_k0 >> 4) - 8);
+        const char qn1_k0 = (k0_in_block < 16) ? ((qp1_k0 & 0x0F) - 8) : ((qp1_k0 >> 4) - 8);
+        const char qn2_k0 = (k0_in_block < 16) ? ((qp2_k0 & 0x0F) - 8) : ((qp2_k0 >> 4) - 8);
+        const char qn3_k0 = (k0_in_block < 16) ? ((qp3_k0 & 0x0F) - 8) : ((qp3_k0 >> 4) - 8);
+        float4 b_vals_k0 = (float4)((float)qn0_k0 * d0_k0, (float)qn1_k0 * d1_k0, (float)qn2_k0 * d2_k0, (float)qn3_k0 * d3_k0);
 
-#pragma unroll
-        for (int k_offset = 0; k_offset < 4; ++k_offset) {
-            const int current_k = k + k_offset;
-            const int k_block_idx = current_k / 32;
-            const int k_in_block = current_k % 32;
-            const uchar qs_sub_idx = k_in_block % 16;
-            const bool is_low_nibble = (k_in_block < 16);
+        // --- 解量化与 a_vals.y (k+1) 相乘的 b_vals_k1 ---
+        const int k1_block_idx = (k + 1) / 32;
+        const int k1_in_block = (k + 1) % 32;
+        const long b_idx0_k1 = (long)(n_start + 0) * n_stride + k1_block_idx;
+        const long b_idx1_k1 = (long)(n_start + 1) * n_stride + k1_block_idx;
+        const long b_idx2_k1 = (long)(n_start + 2) * n_stride + k1_block_idx;
+        const long b_idx3_k1 = (long)(n_start + 3) * n_stride + k1_block_idx;
+        const float d0_k1 = vload_half(0, (__global half *)(&(B[b_idx0_k1].d)));
+        const float d1_k1 = vload_half(0, (__global half *)(&(B[b_idx1_k1].d)));
+        const float d2_k1 = vload_half(0, (__global half *)(&(B[b_idx2_k1].d)));
+        const float d3_k1 = vload_half(0, (__global half *)(&(B[b_idx3_k1].d)));
+        const uchar qp0_k1 = B[b_idx0_k1].qs[k1_in_block % 16];
+        const uchar qp1_k1 = B[b_idx1_k1].qs[k1_in_block % 16];
+        const uchar qp2_k1 = B[b_idx2_k1].qs[k1_in_block % 16];
+        const uchar qp3_k1 = B[b_idx3_k1].qs[k1_in_block % 16];
+        const char qn0_k1 = (k1_in_block < 16) ? ((qp0_k1 & 0x0F) - 8) : ((qp0_k1 >> 4) - 8);
+        const char qn1_k1 = (k1_in_block < 16) ? ((qp1_k1 & 0x0F) - 8) : ((qp1_k1 >> 4) - 8);
+        const char qn2_k1 = (k1_in_block < 16) ? ((qp2_k1 & 0x0F) - 8) : ((qp2_k1 >> 4) - 8);
+        const char qn3_k1 = (k1_in_block < 16) ? ((qp3_k1 & 0x0F) - 8) : ((qp3_k1 >> 4) - 8);
+        float4 b_vals_k1 = (float4)((float)qn0_k1 * d0_k1, (float)qn1_k1 * d1_k1, (float)qn2_k1 * d2_k1, (float)qn3_k1 * d3_k1);
 
-            const long b_base_idx0 = (long)(n_start + 0) * n_stride + k_block_idx;
-            const long b_base_idx1 = (long)(n_start + 1) * n_stride + k_block_idx;
-            const long b_base_idx2 = (long)(n_start + 2) * n_stride + k_block_idx;
-            const long b_base_idx3 = (long)(n_start + 3) * n_stride + k_block_idx;
+        // --- 解量化与 a_vals.z (k+2) 相乘的 b_vals_k2 ---
+        const int k2_block_idx = (k + 2) / 32;
+        const int k2_in_block = (k + 2) % 32;
+        const long b_idx0_k2 = (long)(n_start + 0) * n_stride + k2_block_idx;
+        const long b_idx1_k2 = (long)(n_start + 1) * n_stride + k2_block_idx;
+        const long b_idx2_k2 = (long)(n_start + 2) * n_stride + k2_block_idx;
+        const long b_idx3_k2 = (long)(n_start + 3) * n_stride + k2_block_idx;
+        const float d0_k2 = vload_half(0, (__global half *)(&(B[b_idx0_k2].d)));
+        const float d1_k2 = vload_half(0, (__global half *)(&(B[b_idx1_k2].d)));
+        const float d2_k2 = vload_half(0, (__global half *)(&(B[b_idx2_k2].d)));
+        const float d3_k2 = vload_half(0, (__global half *)(&(B[b_idx3_k2].d)));
+        const uchar qp0_k2 = B[b_idx0_k2].qs[k2_in_block % 16];
+        const uchar qp1_k2 = B[b_idx1_k2].qs[k2_in_block % 16];
+        const uchar qp2_k2 = B[b_idx2_k2].qs[k2_in_block % 16];
+        const uchar qp3_k2 = B[b_idx3_k2].qs[k2_in_block % 16];
+        const char qn0_k2 = (k2_in_block < 16) ? ((qp0_k2 & 0x0F) - 8) : ((qp0_k2 >> 4) - 8);
+        const char qn1_k2 = (k2_in_block < 16) ? ((qp1_k2 & 0x0F) - 8) : ((qp1_k2 >> 4) - 8);
+        const char qn2_k2 = (k2_in_block < 16) ? ((qp2_k2 & 0x0F) - 8) : ((qp2_k2 >> 4) - 8);
+        const char qn3_k2 = (k2_in_block < 16) ? ((qp3_k2 & 0x0F) - 8) : ((qp3_k2 >> 4) - 8);
+        float4 b_vals_k2 = (float4)((float)qn0_k2 * d0_k2, (float)qn1_k2 * d1_k2, (float)qn2_k2 * d2_k2, (float)qn3_k2 * d3_k2);
 
-            const float d0 = vload_half(0, (__global half *)(&(B[b_base_idx0].d)));
-            const float d1 = vload_half(0, (__global half *)(&(B[b_base_idx1].d)));
-            const float d2 = vload_half(0, (__global half *)(&(B[b_base_idx2].d)));
-            const float d3 = vload_half(0, (__global half *)(&(B[b_base_idx3].d)));
+        // --- 解量化与 a_vals.w (k+3) 相乘的 b_vals_k3 ---
+        const int k3_block_idx = (k + 3) / 32;
+        const int k3_in_block = (k + 3) % 32;
+        const long b_idx0_k3 = (long)(n_start + 0) * n_stride + k3_block_idx;
+        const long b_idx1_k3 = (long)(n_start + 1) * n_stride + k3_block_idx;
+        const long b_idx2_k3 = (long)(n_start + 2) * n_stride + k3_block_idx;
+        const long b_idx3_k3 = (long)(n_start + 3) * n_stride + k3_block_idx;
+        const float d0_k3 = vload_half(0, (__global half *)(&(B[b_idx0_k3].d)));
+        const float d1_k3 = vload_half(0, (__global half *)(&(B[b_idx1_k3].d)));
+        const float d2_k3 = vload_half(0, (__global half *)(&(B[b_idx2_k3].d)));
+        const float d3_k3 = vload_half(0, (__global half *)(&(B[b_idx3_k3].d)));
+        const uchar qp0_k3 = B[b_idx0_k3].qs[k3_in_block % 16];
+        const uchar qp1_k3 = B[b_idx1_k3].qs[k3_in_block % 16];
+        const uchar qp2_k3 = B[b_idx2_k3].qs[k3_in_block % 16];
+        const uchar qp3_k3 = B[b_idx3_k3].qs[k3_in_block % 16];
+        const char qn0_k3 = (k3_in_block < 16) ? ((qp0_k3 & 0x0F) - 8) : ((qp0_k3 >> 4) - 8);
+        const char qn1_k3 = (k3_in_block < 16) ? ((qp1_k3 & 0x0F) - 8) : ((qp1_k3 >> 4) - 8);
+        const char qn2_k3 = (k3_in_block < 16) ? ((qp2_k3 & 0x0F) - 8) : ((qp2_k3 >> 4) - 8);
+        const char qn3_k3 = (k3_in_block < 16) ? ((qp3_k3 & 0x0F) - 8) : ((qp3_k3 >> 4) - 8);
+        float4 b_vals_k3 = (float4)((float)qn0_k3 * d0_k3, (float)qn1_k3 * d1_k3, (float)qn2_k3 * d2_k3, (float)qn3_k3 * d3_k3);
 
-            const uchar qp0 = B[b_base_idx0].qs[qs_sub_idx];
-            const uchar qp1 = B[b_base_idx1].qs[qs_sub_idx];
-            const uchar qp2 = B[b_base_idx2].qs[qs_sub_idx];
-            const uchar qp3 = B[b_base_idx3].qs[qs_sub_idx];
-
-            const char qn0 = is_low_nibble ? ((qp0 & 0x0F) - 8) : ((qp0 >> 4) - 8);
-            const char qn1 = is_low_nibble ? ((qp1 & 0x0F) - 8) : ((qp1 >> 4) - 8);
-            const char qn2 = is_low_nibble ? ((qp2 & 0x0F) - 8) : ((qp2 >> 4) - 8);
-            const char qn3 = is_low_nibble ? ((qp3 & 0x0F) - 8) : ((qp3 >> 4) - 8);
-
-            float4 b_vals = (float4)((float)qn0 * d0, (float)qn1 * d1, (float)qn2 * d2, (float)qn3 * d3);
-
-            // c. 累加
-            acc = mad(a_vals[k_offset], b_vals, acc);
-        }
+        // c. 并行执行 4次独立的MAD指令
+        acc = mad(a_vals.x, b_vals_k0, acc);
+        acc = mad(a_vals.y, b_vals_k1, acc);
+        acc = mad(a_vals.z, b_vals_k2, acc);
+        acc = mad(a_vals.w, b_vals_k3, acc);
     }
 
-    // 4. 扫尾处理: K不是4的倍数时，处理余下的1-3个元素
+    // 4. 扫尾处理: K不是4的倍数时
     for (int k = K_vec_size * 4; k < K; ++k) {
         int pixel_x = k / 4;
         int component = k % 4;
-        half4 a_pixel = read_imageh(A, sampler, (int2)(pixel_x, gy));
+        half4 a_pixel = read_imageh(A, sampler, (int2)(pixel_x, 0));
         float a_val;
         if (component == 0)
             a_val = (float)a_pixel.x;
@@ -899,47 +1072,274 @@ __kernel void gemm_fp16_q4_0_transb_bias_image_pipe(
 
         const int k_block_idx = k / 32;
         const int k_in_block = k % 32;
-        const uchar qs_sub_idx = k_in_block % 16;
-        const bool is_low_nibble = (k_in_block < 16);
-
         const long b_idx0 = (long)(n_start + 0) * n_stride + k_block_idx;
         const long b_idx1 = (long)(n_start + 1) * n_stride + k_block_idx;
         const long b_idx2 = (long)(n_start + 2) * n_stride + k_block_idx;
         const long b_idx3 = (long)(n_start + 3) * n_stride + k_block_idx;
-
         const float d0 = vload_half(0, (__global half *)(&(B[b_idx0].d)));
         const float d1 = vload_half(0, (__global half *)(&(B[b_idx1].d)));
         const float d2 = vload_half(0, (__global half *)(&(B[b_idx2].d)));
         const float d3 = vload_half(0, (__global half *)(&(B[b_idx3].d)));
-
-        const uchar qp0 = B[b_idx0].qs[qs_sub_idx];
-        const uchar qp1 = B[b_idx1].qs[qs_sub_idx];
-        const uchar qp2 = B[b_idx2].qs[qs_sub_idx];
-        const uchar qp3 = B[b_idx3].qs[qs_sub_idx];
-
-        const char qn0 = is_low_nibble ? ((qp0 & 0x0F) - 8) : ((qp0 >> 4) - 8);
-        const char qn1 = is_low_nibble ? ((qp1 & 0x0F) - 8) : ((qp1 >> 4) - 8);
-        const char qn2 = is_low_nibble ? ((qp2 & 0x0F) - 8) : ((qp2 >> 4) - 8);
-        const char qn3 = is_low_nibble ? ((qp3 & 0x0F) - 8) : ((qp3 >> 4) - 8);
-
+        const uchar qp0 = B[b_idx0].qs[k_in_block % 16];
+        const uchar qp1 = B[b_idx1].qs[k_in_block % 16];
+        const uchar qp2 = B[b_idx2].qs[k_in_block % 16];
+        const uchar qp3 = B[b_idx3].qs[k_in_block % 16];
+        const char qn0 = (k_in_block < 16) ? ((qp0 & 0x0F) - 8) : ((qp0 >> 4) - 8);
+        const char qn1 = (k_in_block < 16) ? ((qp1 & 0x0F) - 8) : ((qp1 >> 4) - 8);
+        const char qn2 = (k_in_block < 16) ? ((qp2 & 0x0F) - 8) : ((qp2 >> 4) - 8);
+        const char qn3 = (k_in_block < 16) ? ((qp3 & 0x0F) - 8) : ((qp3 >> 4) - 8);
         float4 b_vals = (float4)((float)qn0 * d0, (float)qn1 * d1, (float)qn2 * d2, (float)qn3 * d3);
-
         acc = mad(a_val, b_vals, acc);
     }
 
     // 5. 添加偏置
     if (has_bias != 0) {
-        // 安全地加载bias，防止越界
-        float4 bias_vals = (float4)(0.0f);
-        if (n_start < N) bias_vals.x = bias[n_start];
-        if (n_start + 1 < N) bias_vals.y = bias[n_start + 1];
-        if (n_start + 2 < N) bias_vals.z = bias[n_start + 2];
-        if (n_start + 3 < N) bias_vals.w = bias[n_start + 3];
-        acc += bias_vals;
+        acc += vload4(0, bias + n_start);
     }
 
     // 6. 将结果像素写入输出 Image C
-    write_imageh(C, (int2)(gx, gy), convert_half4_rte(acc));
+    write_imageh(C, (int2)(gx, 0), convert_half4_rte(acc));
+}
+*/
+__kernel void gemm_fp16_q4_0_transb_bias_image_pipe(
+    sampler_t sampler,
+    __read_only image2d_t A,
+    __global const block_q4_0 *B,
+    __global const float *bias,
+    __write_only image2d_t C,
+    const int M, const int K, const int N,
+    const int H, const int K_b,
+    const int has_bias) {
+    const int gx = get_global_id(0);
+    const int gy = get_global_id(1); // gy 对应 M 维度
+    const int n_start = gx * 4;
+
+    if (n_start >= N || gy >= M) { return; }
+
+    half4 acc = (half4)(0.0h);
+
+    const int K_blocks = K / 32;
+    const long n_stride = K_blocks;
+    const int K_vec_size_x8 = K / 8;
+
+    for (int k_vec = 0; k_vec < K_vec_size_x8; ++k_vec) {
+        const int k = k_vec * 8;
+
+        // **核心区别**: 读取A时，y坐标使用 gy
+        half4 a_vals_lo = read_imageh(A, sampler, (int2)(k / 4, gy));
+        half4 a_vals_hi = read_imageh(A, sampler, (int2)(k / 4 + 1, gy));
+
+        // --- 8倍展开的解量化与计算（代码同GEMV版，此处为简洁省略）---
+        // --- k+0 ---
+        const int k0_block_idx = (k + 0) / 32;
+        const int k0_in_block = (k + 0) % 32;
+        const long b_idx0_k0 = (long)(n_start + 0) * n_stride + k0_block_idx;
+        const long b_idx1_k0 = (long)(n_start + 1) * n_stride + k0_block_idx;
+        const long b_idx2_k0 = (long)(n_start + 2) * n_stride + k0_block_idx;
+        const long b_idx3_k0 = (long)(n_start + 3) * n_stride + k0_block_idx;
+        const half d0_k0 = vload_half(0, (__global half *)(&(B[b_idx0_k0].d)));
+        const half d1_k0 = vload_half(0, (__global half *)(&(B[b_idx1_k0].d)));
+        const half d2_k0 = vload_half(0, (__global half *)(&(B[b_idx2_k0].d)));
+        const half d3_k0 = vload_half(0, (__global half *)(&(B[b_idx3_k0].d)));
+        const uchar qp0_k0 = B[b_idx0_k0].qs[k0_in_block % 16];
+        const uchar qp1_k0 = B[b_idx1_k0].qs[k0_in_block % 16];
+        const uchar qp2_k0 = B[b_idx2_k0].qs[k0_in_block % 16];
+        const uchar qp3_k0 = B[b_idx3_k0].qs[k0_in_block % 16];
+        const half qn0_k0 = (half)((k0_in_block < 16) ? ((qp0_k0 & 0x0F) - 8) : ((qp0_k0 >> 4) - 8));
+        const half qn1_k0 = (half)((k0_in_block < 16) ? ((qp1_k0 & 0x0F) - 8) : ((qp1_k0 >> 4) - 8));
+        const half qn2_k0 = (half)((k0_in_block < 16) ? ((qp2_k0 & 0x0F) - 8) : ((qp2_k0 >> 4) - 8));
+        const half qn3_k0 = (half)((k0_in_block < 16) ? ((qp3_k0 & 0x0F) - 8) : ((qp3_k0 >> 4) - 8));
+        half4 b_vals_k0 = (half4)(qn0_k0 * d0_k0, qn1_k0 * d1_k0, qn2_k0 * d2_k0, qn3_k0 * d3_k0);
+        // ... k+1 到 k+7 的代码 ...
+        const int k1_block_idx = (k + 1) / 32;
+        const int k1_in_block = (k + 1) % 32;
+        const long b_idx0_k1 = (long)(n_start + 0) * n_stride + k1_block_idx;
+        const long b_idx1_k1 = (long)(n_start + 1) * n_stride + k1_block_idx;
+        const long b_idx2_k1 = (long)(n_start + 2) * n_stride + k1_block_idx;
+        const long b_idx3_k1 = (long)(n_start + 3) * n_stride + k1_block_idx;
+        const half d0_k1 = vload_half(0, (__global half *)(&(B[b_idx0_k1].d)));
+        const half d1_k1 = vload_half(0, (__global half *)(&(B[b_idx1_k1].d)));
+        const half d2_k1 = vload_half(0, (__global half *)(&(B[b_idx2_k1].d)));
+        const half d3_k1 = vload_half(0, (__global half *)(&(B[b_idx3_k1].d)));
+        const uchar qp0_k1 = B[b_idx0_k1].qs[k1_in_block % 16];
+        const uchar qp1_k1 = B[b_idx1_k1].qs[k1_in_block % 16];
+        const uchar qp2_k1 = B[b_idx2_k1].qs[k1_in_block % 16];
+        const uchar qp3_k1 = B[b_idx3_k1].qs[k1_in_block % 16];
+        const half qn0_k1 = (half)((k1_in_block < 16) ? ((qp0_k1 & 0x0F) - 8) : ((qp0_k1 >> 4) - 8));
+        const half qn1_k1 = (half)((k1_in_block < 16) ? ((qp1_k1 & 0x0F) - 8) : ((qp1_k1 >> 4) - 8));
+        const half qn2_k1 = (half)((k1_in_block < 16) ? ((qp2_k1 & 0x0F) - 8) : ((qp2_k1 >> 4) - 8));
+        const half qn3_k1 = (half)((k1_in_block < 16) ? ((qp3_k1 & 0x0F) - 8) : ((qp3_k1 >> 4) - 8));
+        half4 b_vals_k1 = (half4)(qn0_k1 * d0_k1, qn1_k1 * d1_k1, qn2_k1 * d2_k1, qn3_k1 * d3_k1);
+        const int k2_block_idx = (k + 2) / 32;
+        const int k2_in_block = (k + 2) % 32;
+        const long b_idx0_k2 = (long)(n_start + 0) * n_stride + k2_block_idx;
+        const long b_idx1_k2 = (long)(n_start + 1) * n_stride + k2_block_idx;
+        const long b_idx2_k2 = (long)(n_start + 2) * n_stride + k2_block_idx;
+        const long b_idx3_k2 = (long)(n_start + 3) * n_stride + k2_block_idx;
+        const half d0_k2 = vload_half(0, (__global half *)(&(B[b_idx0_k2].d)));
+        const half d1_k2 = vload_half(0, (__global half *)(&(B[b_idx1_k2].d)));
+        const half d2_k2 = vload_half(0, (__global half *)(&(B[b_idx2_k2].d)));
+        const half d3_k2 = vload_half(0, (__global half *)(&(B[b_idx3_k2].d)));
+        const uchar qp0_k2 = B[b_idx0_k2].qs[k2_in_block % 16];
+        const uchar qp1_k2 = B[b_idx1_k2].qs[k2_in_block % 16];
+        const uchar qp2_k2 = B[b_idx2_k2].qs[k2_in_block % 16];
+        const uchar qp3_k2 = B[b_idx3_k2].qs[k2_in_block % 16];
+        const half qn0_k2 = (half)((k2_in_block < 16) ? ((qp0_k2 & 0x0F) - 8) : ((qp0_k2 >> 4) - 8));
+        const half qn1_k2 = (half)((k2_in_block < 16) ? ((qp1_k2 & 0x0F) - 8) : ((qp1_k2 >> 4) - 8));
+        const half qn2_k2 = (half)((k2_in_block < 16) ? ((qp2_k2 & 0x0F) - 8) : ((qp2_k2 >> 4) - 8));
+        const half qn3_k2 = (half)((k2_in_block < 16) ? ((qp3_k2 & 0x0F) - 8) : ((qp3_k2 >> 4) - 8));
+        half4 b_vals_k2 = (half4)(qn0_k2 * d0_k2, qn1_k2 * d1_k2, qn2_k2 * d2_k2, qn3_k2 * d3_k2);
+        const int k3_block_idx = (k + 3) / 32;
+        const int k3_in_block = (k + 3) % 32;
+        const long b_idx0_k3 = (long)(n_start + 0) * n_stride + k3_block_idx;
+        const long b_idx1_k3 = (long)(n_start + 1) * n_stride + k3_block_idx;
+        const long b_idx2_k3 = (long)(n_start + 2) * n_stride + k3_block_idx;
+        const long b_idx3_k3 = (long)(n_start + 3) * n_stride + k3_block_idx;
+        const half d0_k3 = vload_half(0, (__global half *)(&(B[b_idx0_k3].d)));
+        const half d1_k3 = vload_half(0, (__global half *)(&(B[b_idx1_k3].d)));
+        const half d2_k3 = vload_half(0, (__global half *)(&(B[b_idx2_k3].d)));
+        const half d3_k3 = vload_half(0, (__global half *)(&(B[b_idx3_k3].d)));
+        const uchar qp0_k3 = B[b_idx0_k3].qs[k3_in_block % 16];
+        const uchar qp1_k3 = B[b_idx1_k3].qs[k3_in_block % 16];
+        const uchar qp2_k3 = B[b_idx2_k3].qs[k3_in_block % 16];
+        const uchar qp3_k3 = B[b_idx3_k3].qs[k3_in_block % 16];
+        const half qn0_k3 = (half)((k3_in_block < 16) ? ((qp0_k3 & 0x0F) - 8) : ((qp0_k3 >> 4) - 8));
+        const half qn1_k3 = (half)((k3_in_block < 16) ? ((qp1_k3 & 0x0F) - 8) : ((qp1_k3 >> 4) - 8));
+        const half qn2_k3 = (half)((k3_in_block < 16) ? ((qp2_k3 & 0x0F) - 8) : ((qp2_k3 >> 4) - 8));
+        const half qn3_k3 = (half)((k3_in_block < 16) ? ((qp3_k3 & 0x0F) - 8) : ((qp3_k3 >> 4) - 8));
+        half4 b_vals_k3 = (half4)(qn0_k3 * d0_k3, qn1_k3 * d1_k3, qn2_k3 * d2_k3, qn3_k3 * d3_k3);
+        const int k4_block_idx = (k + 4) / 32;
+        const int k4_in_block = (k + 4) % 32;
+        const long b_idx0_k4 = (long)(n_start + 0) * n_stride + k4_block_idx;
+        const long b_idx1_k4 = (long)(n_start + 1) * n_stride + k4_block_idx;
+        const long b_idx2_k4 = (long)(n_start + 2) * n_stride + k4_block_idx;
+        const long b_idx3_k4 = (long)(n_start + 3) * n_stride + k4_block_idx;
+        const half d0_k4 = vload_half(0, (__global half *)(&(B[b_idx0_k4].d)));
+        const half d1_k4 = vload_half(0, (__global half *)(&(B[b_idx1_k4].d)));
+        const half d2_k4 = vload_half(0, (__global half *)(&(B[b_idx2_k4].d)));
+        const half d3_k4 = vload_half(0, (__global half *)(&(B[b_idx3_k4].d)));
+        const uchar qp0_k4 = B[b_idx0_k4].qs[k4_in_block % 16];
+        const uchar qp1_k4 = B[b_idx1_k4].qs[k4_in_block % 16];
+        const uchar qp2_k4 = B[b_idx2_k4].qs[k4_in_block % 16];
+        const uchar qp3_k4 = B[b_idx3_k4].qs[k4_in_block % 16];
+        const half qn0_k4 = (half)((k4_in_block < 16) ? ((qp0_k4 & 0x0F) - 8) : ((qp0_k4 >> 4) - 8));
+        const half qn1_k4 = (half)((k4_in_block < 16) ? ((qp1_k4 & 0x0F) - 8) : ((qp1_k4 >> 4) - 8));
+        const half qn2_k4 = (half)((k4_in_block < 16) ? ((qp2_k4 & 0x0F) - 8) : ((qp2_k4 >> 4) - 8));
+        const half qn3_k4 = (half)((k4_in_block < 16) ? ((qp3_k4 & 0x0F) - 8) : ((qp3_k4 >> 4) - 8));
+        half4 b_vals_k4 = (half4)(qn0_k4 * d0_k4, qn1_k4 * d1_k4, qn2_k4 * d2_k4, qn3_k4 * d3_k4);
+        const int k5_block_idx = (k + 5) / 32;
+        const int k5_in_block = (k + 5) % 32;
+        const long b_idx0_k5 = (long)(n_start + 0) * n_stride + k5_block_idx;
+        const long b_idx1_k5 = (long)(n_start + 1) * n_stride + k5_block_idx;
+        const long b_idx2_k5 = (long)(n_start + 2) * n_stride + k5_block_idx;
+        const long b_idx3_k5 = (long)(n_start + 3) * n_stride + k5_block_idx;
+        const half d0_k5 = vload_half(0, (__global half *)(&(B[b_idx0_k5].d)));
+        const half d1_k5 = vload_half(0, (__global half *)(&(B[b_idx1_k5].d)));
+        const half d2_k5 = vload_half(0, (__global half *)(&(B[b_idx2_k5].d)));
+        const half d3_k5 = vload_half(0, (__global half *)(&(B[b_idx3_k5].d)));
+        const uchar qp0_k5 = B[b_idx0_k5].qs[k5_in_block % 16];
+        const uchar qp1_k5 = B[b_idx1_k5].qs[k5_in_block % 16];
+        const uchar qp2_k5 = B[b_idx2_k5].qs[k5_in_block % 16];
+        const uchar qp3_k5 = B[b_idx3_k5].qs[k5_in_block % 16];
+        const half qn0_k5 = (half)((k5_in_block < 16) ? ((qp0_k5 & 0x0F) - 8) : ((qp0_k5 >> 4) - 8));
+        const half qn1_k5 = (half)((k5_in_block < 16) ? ((qp1_k5 & 0x0F) - 8) : ((qp1_k5 >> 4) - 8));
+        const half qn2_k5 = (half)((k5_in_block < 16) ? ((qp2_k5 & 0x0F) - 8) : ((qp2_k5 >> 4) - 8));
+        const half qn3_k5 = (half)((k5_in_block < 16) ? ((qp3_k5 & 0x0F) - 8) : ((qp3_k5 >> 4) - 8));
+        half4 b_vals_k5 = (half4)(qn0_k5 * d0_k5, qn1_k5 * d1_k5, qn2_k5 * d2_k5, qn3_k5 * d3_k5);
+        const int k6_block_idx = (k + 6) / 32;
+        const int k6_in_block = (k + 6) % 32;
+        const long b_idx0_k6 = (long)(n_start + 0) * n_stride + k6_block_idx;
+        const long b_idx1_k6 = (long)(n_start + 1) * n_stride + k6_block_idx;
+        const long b_idx2_k6 = (long)(n_start + 2) * n_stride + k6_block_idx;
+        const long b_idx3_k6 = (long)(n_start + 3) * n_stride + k6_block_idx;
+        const half d0_k6 = vload_half(0, (__global half *)(&(B[b_idx0_k6].d)));
+        const half d1_k6 = vload_half(0, (__global half *)(&(B[b_idx1_k6].d)));
+        const half d2_k6 = vload_half(0, (__global half *)(&(B[b_idx2_k6].d)));
+        const half d3_k6 = vload_half(0, (__global half *)(&(B[b_idx3_k6].d)));
+        const uchar qp0_k6 = B[b_idx0_k6].qs[k6_in_block % 16];
+        const uchar qp1_k6 = B[b_idx1_k6].qs[k6_in_block % 16];
+        const uchar qp2_k6 = B[b_idx2_k6].qs[k6_in_block % 16];
+        const uchar qp3_k6 = B[b_idx3_k6].qs[k6_in_block % 16];
+        const half qn0_k6 = (half)((k6_in_block < 16) ? ((qp0_k6 & 0x0F) - 8) : ((qp0_k6 >> 4) - 8));
+        const half qn1_k6 = (half)((k6_in_block < 16) ? ((qp1_k6 & 0x0F) - 8) : ((qp1_k6 >> 4) - 8));
+        const half qn2_k6 = (half)((k6_in_block < 16) ? ((qp2_k6 & 0x0F) - 8) : ((qp2_k6 >> 4) - 8));
+        const half qn3_k6 = (half)((k6_in_block < 16) ? ((qp3_k6 & 0x0F) - 8) : ((qp3_k6 >> 4) - 8));
+        half4 b_vals_k6 = (half4)(qn0_k6 * d0_k6, qn1_k6 * d1_k6, qn2_k6 * d2_k6, qn3_k6 * d3_k6);
+        const int k7_block_idx = (k + 7) / 32;
+        const int k7_in_block = (k + 7) % 32;
+        const long b_idx0_k7 = (long)(n_start + 0) * n_stride + k7_block_idx;
+        const long b_idx1_k7 = (long)(n_start + 1) * n_stride + k7_block_idx;
+        const long b_idx2_k7 = (long)(n_start + 2) * n_stride + k7_block_idx;
+        const long b_idx3_k7 = (long)(n_start + 3) * n_stride + k7_block_idx;
+        const half d0_k7 = vload_half(0, (__global half *)(&(B[b_idx0_k7].d)));
+        const half d1_k7 = vload_half(0, (__global half *)(&(B[b_idx1_k7].d)));
+        const half d2_k7 = vload_half(0, (__global half *)(&(B[b_idx2_k7].d)));
+        const half d3_k7 = vload_half(0, (__global half *)(&(B[b_idx3_k7].d)));
+        const uchar qp0_k7 = B[b_idx0_k7].qs[k7_in_block % 16];
+        const uchar qp1_k7 = B[b_idx1_k7].qs[k7_in_block % 16];
+        const uchar qp2_k7 = B[b_idx2_k7].qs[k7_in_block % 16];
+        const uchar qp3_k7 = B[b_idx3_k7].qs[k7_in_block % 16];
+        const half qn0_k7 = (half)((k7_in_block < 16) ? ((qp0_k7 & 0x0F) - 8) : ((qp0_k7 >> 4) - 8));
+        const half qn1_k7 = (half)((k7_in_block < 16) ? ((qp1_k7 & 0x0F) - 8) : ((qp1_k7 >> 4) - 8));
+        const half qn2_k7 = (half)((k7_in_block < 16) ? ((qp2_k7 & 0x0F) - 8) : ((qp2_k7 >> 4) - 8));
+        const half qn3_k7 = (half)((k7_in_block < 16) ? ((qp3_k7 & 0x0F) - 8) : ((qp3_k7 >> 4) - 8));
+        half4 b_vals_k7 = (half4)(qn0_k7 * d0_k7, qn1_k7 * d1_k7, qn2_k7 * d2_k7, qn3_k7 * d3_k7);
+
+        acc = mad(a_vals_lo.x, b_vals_k0, acc);
+        acc = mad(a_vals_lo.y, b_vals_k1, acc);
+        acc = mad(a_vals_lo.z, b_vals_k2, acc);
+        acc = mad(a_vals_lo.w, b_vals_k3, acc);
+        acc = mad(a_vals_hi.x, b_vals_k4, acc);
+        acc = mad(a_vals_hi.y, b_vals_k5, acc);
+        acc = mad(a_vals_hi.z, b_vals_k6, acc);
+        acc = mad(a_vals_hi.w, b_vals_k7, acc);
+    }
+
+    // 扫尾和偏置
+    for (int k = K_vec_size_x8 * 8; k < K; ++k) {
+        int pixel_x = k / 4;
+        int component = k % 4;
+        half4 a_pixel = read_imageh(A, sampler, (int2)(pixel_x, gy));
+        half a_val;
+        if (component == 0)
+            a_val = a_pixel.x;
+        else if (component == 1)
+            a_val = a_pixel.y;
+        else if (component == 2)
+            a_val = a_pixel.z;
+        else
+            a_val = a_pixel.w;
+        const int k_block_idx = k / 32;
+        const int k_in_block = k % 32;
+        const long b_idx0 = (long)(n_start + 0) * n_stride + k_block_idx;
+        const long b_idx1 = (long)(n_start + 1) * n_stride + k_block_idx;
+        const long b_idx2 = (long)(n_start + 2) * n_stride + k_block_idx;
+        const long b_idx3 = (long)(n_start + 3) * n_stride + k_block_idx;
+        const half d0 = vload_half(0, (__global half *)(&(B[b_idx0].d)));
+        const half d1 = vload_half(0, (__global half *)(&(B[b_idx1].d)));
+        const half d2 = vload_half(0, (__global half *)(&(B[b_idx2].d)));
+        const half d3 = vload_half(0, (__global half *)(&(B[b_idx3].d)));
+        const uchar qp0 = B[b_idx0].qs[k_in_block % 16];
+        const uchar qp1 = B[b_idx1].qs[k_in_block % 16];
+        const uchar qp2 = B[b_idx2].qs[k_in_block % 16];
+        const uchar qp3 = B[b_idx3].qs[k_in_block % 16];
+        const half qn0 = (half)((k_in_block < 16) ? ((qp0 & 0x0F) - 8) : ((qp0 >> 4) - 8));
+        const half qn1 = (half)((k_in_block < 16) ? ((qp1 & 0x0F) - 8) : ((qp1 >> 4) - 8));
+        const half qn2 = (half)((k_in_block < 16) ? ((qp2 & 0x0F) - 8) : ((qp2 >> 4) - 8));
+        const half qn3 = (half)((k_in_block < 16) ? ((qp3 & 0x0F) - 8) : ((qp3 >> 4) - 8));
+        half4 b_vals = (half4)(qn0 * d0, qn1 * d1, qn2 * d2, qn3 * d3);
+        acc = mad(a_val, b_vals, acc);
+    }
+
+    if (has_bias != 0) {
+        half4 bias_h = convert_half4_rte(vload4(0, bias + n_start));
+        if (n_start < N) acc.x += bias_h.x;
+        if (n_start + 1 < N) acc.y += bias_h.y;
+        if (n_start + 2 < N) acc.z += bias_h.z;
+        if (n_start + 3 < N) acc.w += bias_h.w;
+    }
+
+    write_imageh(C, (int2)(gx, gy), acc);
 }
 #else
 // ---------- [兼容回退版 - Fallback Version] ----------
@@ -1094,8 +1494,9 @@ __kernel void gemv_fp32_q4_0_transb_bias_image_pipe(
 // ==================================================================
 // 10. FP16 * Q4_0 Fused GEMV + Bias Kernel (All Image Pipe) [最终修正版]
 // ==================================================================
-#if defined(DSUPPORTS_FP16)
+#if defined(SUPPORTS_FP16)
 // ---------- [高性能版] ----------
+/*
 __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
     sampler_t sampler,
     __read_only image2d_t A,      // 输入向量 A, 形状 [1, K], 映射为 [K/4, 1] 的 half4 Image
@@ -1112,13 +1513,12 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
 
     // 2. 寄存器累加器：使用float4在寄存器中进行高精度累加
     float4 acc = (float4)(0.0f);
-
     const int K_blocks = K / 32;
     const long n_stride = K_blocks;
-    const int K_vec_size = K / 4; // K维度可以被4整除的部分
+    const int K_vec_size = K / 4;
 
-    // 3. 核心计算循环：沿K维度4倍展开
-    // 每次循环处理K维度的4个元素，最大化指令级并行
+    // 3. 核心计算循环：沿K维度4倍展开, 深度优化指令级并行
+    // 每次循环处理K维度的4个元素
     for (int k_vec = 0; k_vec < K_vec_size; ++k_vec) {
         const int k = k_vec * 4;
 
@@ -1126,12 +1526,11 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
         half4 a_pixel_h = read_imageh(A, sampler, (int2)(k_vec, 0));
         float4 a_vals = convert_float4(a_pixel_h);
 
-        // b. 实时解量化4组B的值 (每组4个, 共16个b值)
-        // b_vals_k0 对应 A[k]   要乘以的 B[n_start:n_start+3, k]
-        // b_vals_k1 对应 A[k+1] 要乘以的 B[n_start:n_start+3, k+1]
-        // ... 以此类推
+        // b. 为 a_vals 的每个分量(x,y,z,w) 分别解量化B的值
+        //    这部分代码虽然冗长，但将所有计算和访存操作完全展开，
+        //    能让编译器和硬件最大程度地并行调度，隐藏延迟。
 
-        // --- k+0 ---
+        // --- 解量化与 a_vals.x (k+0) 相乘的 b_vals_k0 ---
         const int k0_block_idx = (k + 0) / 32;
         const int k0_in_block = (k + 0) % 32;
         const long b_idx0_k0 = (long)(n_start + 0) * n_stride + k0_block_idx;
@@ -1152,7 +1551,7 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
         const char qn3_k0 = (k0_in_block < 16) ? ((qp3_k0 & 0x0F) - 8) : ((qp3_k0 >> 4) - 8);
         float4 b_vals_k0 = (float4)((float)qn0_k0 * d0_k0, (float)qn1_k0 * d1_k0, (float)qn2_k0 * d2_k0, (float)qn3_k0 * d3_k0);
 
-        // --- k+1 ---
+        // --- 解量化与 a_vals.y (k+1) 相乘的 b_vals_k1 ---
         const int k1_block_idx = (k + 1) / 32;
         const int k1_in_block = (k + 1) % 32;
         const long b_idx0_k1 = (long)(n_start + 0) * n_stride + k1_block_idx;
@@ -1173,7 +1572,7 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
         const char qn3_k1 = (k1_in_block < 16) ? ((qp3_k1 & 0x0F) - 8) : ((qp3_k1 >> 4) - 8);
         float4 b_vals_k1 = (float4)((float)qn0_k1 * d0_k1, (float)qn1_k1 * d1_k1, (float)qn2_k1 * d2_k1, (float)qn3_k1 * d3_k1);
 
-        // --- k+2 ---
+        // --- 解量化与 a_vals.z (k+2) 相乘的 b_vals_k2 ---
         const int k2_block_idx = (k + 2) / 32;
         const int k2_in_block = (k + 2) % 32;
         const long b_idx0_k2 = (long)(n_start + 0) * n_stride + k2_block_idx;
@@ -1194,7 +1593,7 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
         const char qn3_k2 = (k2_in_block < 16) ? ((qp3_k2 & 0x0F) - 8) : ((qp3_k2 >> 4) - 8);
         float4 b_vals_k2 = (float4)((float)qn0_k2 * d0_k2, (float)qn1_k2 * d1_k2, (float)qn2_k2 * d2_k2, (float)qn3_k2 * d3_k2);
 
-        // --- k+3 ---
+        // --- 解量化与 a_vals.w (k+3) 相乘的 b_vals_k3 ---
         const int k3_block_idx = (k + 3) / 32;
         const int k3_in_block = (k + 3) % 32;
         const long b_idx0_k3 = (long)(n_start + 0) * n_stride + k3_block_idx;
@@ -1215,16 +1614,15 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
         const char qn3_k3 = (k3_in_block < 16) ? ((qp3_k3 & 0x0F) - 8) : ((qp3_k3 >> 4) - 8);
         float4 b_vals_k3 = (float4)((float)qn0_k3 * d0_k3, (float)qn1_k3 * d1_k3, (float)qn2_k3 * d2_k3, (float)qn3_k3 * d3_k3);
 
-        // c. 累加: 4次MAD指令，充分利用ILP
+        // c. 累加: 4次独立的MAD指令，可以被硬件并行执行
         acc = mad(a_vals.x, b_vals_k0, acc);
         acc = mad(a_vals.y, b_vals_k1, acc);
         acc = mad(a_vals.z, b_vals_k2, acc);
         acc = mad(a_vals.w, b_vals_k3, acc);
     }
 
-    // 4. 扫尾处理: 如果K不是4的倍数，处理余下的1-3个元素
+    // 4. 扫尾处理: K不是4的倍数时，处理余下的1-3个元素 (保持不变)
     for (int k = K_vec_size * 4; k < K; ++k) {
-        // 这部分使用原版内核的标量逻辑
         int pixel_x = k / 4;
         int component = k % 4;
         half4 a_pixel = read_imageh(A, sampler, (int2)(pixel_x, 0));
@@ -1261,7 +1659,7 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
         acc = mad(a_val, b_vals, acc);
     }
 
-    // 5. 添加偏置
+    // 5. 添加偏置 (优化为单次vload4，因为N通常是4的倍数)
     if (has_bias != 0) {
         float4 bias_vals = vload4(0, bias + n_start);
         acc += bias_vals;
@@ -1269,6 +1667,239 @@ __kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
 
     // 6. 将结果像素写入输出 Image C
     write_imageh(C, (int2)(gx, 0), convert_half4_rte(acc));
+}
+*/
+__kernel void gemv_fp16_q4_0_transb_bias_image_pipe(
+    sampler_t sampler,
+    __read_only image2d_t A,
+    __global const block_q4_0 *B,
+    __global const float *bias,
+    __write_only image2d_t C,
+    const int K, const int N,
+    const int H,
+    const int has_bias) {
+    const int gx = get_global_id(0);
+    const int n_start = gx * 4;
+    if (n_start >= N) { return; }
+
+    half4 acc = (half4)(0.0h);
+
+    const int K_blocks = K / 32;
+    const long n_stride = K_blocks;
+    const int K_vec_size_x8 = K / 8;
+
+    for (int k_vec = 0; k_vec < K_vec_size_x8; ++k_vec) {
+        const int k = k_vec * 8;
+
+        // 读取A时，y坐标固定为0，因为是GEMV
+        half4 a_vals_lo = read_imageh(A, sampler, (int2)(k / 4, 0));
+        half4 a_vals_hi = read_imageh(A, sampler, (int2)(k / 4 + 1, 0));
+
+        // --- 8倍展开的解量化与计算（代码同上一版，此处为简洁省略）---
+        // --- k+0 ---
+        const int k0_block_idx = (k + 0) / 32;
+        const int k0_in_block = (k + 0) % 32;
+        const long b_idx0_k0 = (long)(n_start + 0) * n_stride + k0_block_idx;
+        const long b_idx1_k0 = (long)(n_start + 1) * n_stride + k0_block_idx;
+        const long b_idx2_k0 = (long)(n_start + 2) * n_stride + k0_block_idx;
+        const long b_idx3_k0 = (long)(n_start + 3) * n_stride + k0_block_idx;
+        const half d0_k0 = vload_half(0, (__global half *)(&(B[b_idx0_k0].d)));
+        const half d1_k0 = vload_half(0, (__global half *)(&(B[b_idx1_k0].d)));
+        const half d2_k0 = vload_half(0, (__global half *)(&(B[b_idx2_k0].d)));
+        const half d3_k0 = vload_half(0, (__global half *)(&(B[b_idx3_k0].d)));
+        const uchar qp0_k0 = B[b_idx0_k0].qs[k0_in_block % 16];
+        const uchar qp1_k0 = B[b_idx1_k0].qs[k0_in_block % 16];
+        const uchar qp2_k0 = B[b_idx2_k0].qs[k0_in_block % 16];
+        const uchar qp3_k0 = B[b_idx3_k0].qs[k0_in_block % 16];
+        const half qn0_k0 = (half)((k0_in_block < 16) ? ((qp0_k0 & 0x0F) - 8) : ((qp0_k0 >> 4) - 8));
+        const half qn1_k0 = (half)((k0_in_block < 16) ? ((qp1_k0 & 0x0F) - 8) : ((qp1_k0 >> 4) - 8));
+        const half qn2_k0 = (half)((k0_in_block < 16) ? ((qp2_k0 & 0x0F) - 8) : ((qp2_k0 >> 4) - 8));
+        const half qn3_k0 = (half)((k0_in_block < 16) ? ((qp3_k0 & 0x0F) - 8) : ((qp3_k0 >> 4) - 8));
+        half4 b_vals_k0 = (half4)(qn0_k0 * d0_k0, qn1_k0 * d1_k0, qn2_k0 * d2_k0, qn3_k0 * d3_k0);
+        // ... k+1 到 k+7 的代码 ...
+        const int k1_block_idx = (k + 1) / 32;
+        const int k1_in_block = (k + 1) % 32;
+        const long b_idx0_k1 = (long)(n_start + 0) * n_stride + k1_block_idx;
+        const long b_idx1_k1 = (long)(n_start + 1) * n_stride + k1_block_idx;
+        const long b_idx2_k1 = (long)(n_start + 2) * n_stride + k1_block_idx;
+        const long b_idx3_k1 = (long)(n_start + 3) * n_stride + k1_block_idx;
+        const half d0_k1 = vload_half(0, (__global half *)(&(B[b_idx0_k1].d)));
+        const half d1_k1 = vload_half(0, (__global half *)(&(B[b_idx1_k1].d)));
+        const half d2_k1 = vload_half(0, (__global half *)(&(B[b_idx2_k1].d)));
+        const half d3_k1 = vload_half(0, (__global half *)(&(B[b_idx3_k1].d)));
+        const uchar qp0_k1 = B[b_idx0_k1].qs[k1_in_block % 16];
+        const uchar qp1_k1 = B[b_idx1_k1].qs[k1_in_block % 16];
+        const uchar qp2_k1 = B[b_idx2_k1].qs[k1_in_block % 16];
+        const uchar qp3_k1 = B[b_idx3_k1].qs[k1_in_block % 16];
+        const half qn0_k1 = (half)((k1_in_block < 16) ? ((qp0_k1 & 0x0F) - 8) : ((qp0_k1 >> 4) - 8));
+        const half qn1_k1 = (half)((k1_in_block < 16) ? ((qp1_k1 & 0x0F) - 8) : ((qp1_k1 >> 4) - 8));
+        const half qn2_k1 = (half)((k1_in_block < 16) ? ((qp2_k1 & 0x0F) - 8) : ((qp2_k1 >> 4) - 8));
+        const half qn3_k1 = (half)((k1_in_block < 16) ? ((qp3_k1 & 0x0F) - 8) : ((qp3_k1 >> 4) - 8));
+        half4 b_vals_k1 = (half4)(qn0_k1 * d0_k1, qn1_k1 * d1_k1, qn2_k1 * d2_k1, qn3_k1 * d3_k1);
+        const int k2_block_idx = (k + 2) / 32;
+        const int k2_in_block = (k + 2) % 32;
+        const long b_idx0_k2 = (long)(n_start + 0) * n_stride + k2_block_idx;
+        const long b_idx1_k2 = (long)(n_start + 1) * n_stride + k2_block_idx;
+        const long b_idx2_k2 = (long)(n_start + 2) * n_stride + k2_block_idx;
+        const long b_idx3_k2 = (long)(n_start + 3) * n_stride + k2_block_idx;
+        const half d0_k2 = vload_half(0, (__global half *)(&(B[b_idx0_k2].d)));
+        const half d1_k2 = vload_half(0, (__global half *)(&(B[b_idx1_k2].d)));
+        const half d2_k2 = vload_half(0, (__global half *)(&(B[b_idx2_k2].d)));
+        const half d3_k2 = vload_half(0, (__global half *)(&(B[b_idx3_k2].d)));
+        const uchar qp0_k2 = B[b_idx0_k2].qs[k2_in_block % 16];
+        const uchar qp1_k2 = B[b_idx1_k2].qs[k2_in_block % 16];
+        const uchar qp2_k2 = B[b_idx2_k2].qs[k2_in_block % 16];
+        const uchar qp3_k2 = B[b_idx3_k2].qs[k2_in_block % 16];
+        const half qn0_k2 = (half)((k2_in_block < 16) ? ((qp0_k2 & 0x0F) - 8) : ((qp0_k2 >> 4) - 8));
+        const half qn1_k2 = (half)((k2_in_block < 16) ? ((qp1_k2 & 0x0F) - 8) : ((qp1_k2 >> 4) - 8));
+        const half qn2_k2 = (half)((k2_in_block < 16) ? ((qp2_k2 & 0x0F) - 8) : ((qp2_k2 >> 4) - 8));
+        const half qn3_k2 = (half)((k2_in_block < 16) ? ((qp3_k2 & 0x0F) - 8) : ((qp3_k2 >> 4) - 8));
+        half4 b_vals_k2 = (half4)(qn0_k2 * d0_k2, qn1_k2 * d1_k2, qn2_k2 * d2_k2, qn3_k2 * d3_k2);
+        const int k3_block_idx = (k + 3) / 32;
+        const int k3_in_block = (k + 3) % 32;
+        const long b_idx0_k3 = (long)(n_start + 0) * n_stride + k3_block_idx;
+        const long b_idx1_k3 = (long)(n_start + 1) * n_stride + k3_block_idx;
+        const long b_idx2_k3 = (long)(n_start + 2) * n_stride + k3_block_idx;
+        const long b_idx3_k3 = (long)(n_start + 3) * n_stride + k3_block_idx;
+        const half d0_k3 = vload_half(0, (__global half *)(&(B[b_idx0_k3].d)));
+        const half d1_k3 = vload_half(0, (__global half *)(&(B[b_idx1_k3].d)));
+        const half d2_k3 = vload_half(0, (__global half *)(&(B[b_idx2_k3].d)));
+        const half d3_k3 = vload_half(0, (__global half *)(&(B[b_idx3_k3].d)));
+        const uchar qp0_k3 = B[b_idx0_k3].qs[k3_in_block % 16];
+        const uchar qp1_k3 = B[b_idx1_k3].qs[k3_in_block % 16];
+        const uchar qp2_k3 = B[b_idx2_k3].qs[k3_in_block % 16];
+        const uchar qp3_k3 = B[b_idx3_k3].qs[k3_in_block % 16];
+        const half qn0_k3 = (half)((k3_in_block < 16) ? ((qp0_k3 & 0x0F) - 8) : ((qp0_k3 >> 4) - 8));
+        const half qn1_k3 = (half)((k3_in_block < 16) ? ((qp1_k3 & 0x0F) - 8) : ((qp1_k3 >> 4) - 8));
+        const half qn2_k3 = (half)((k3_in_block < 16) ? ((qp2_k3 & 0x0F) - 8) : ((qp2_k3 >> 4) - 8));
+        const half qn3_k3 = (half)((k3_in_block < 16) ? ((qp3_k3 & 0x0F) - 8) : ((qp3_k3 >> 4) - 8));
+        half4 b_vals_k3 = (half4)(qn0_k3 * d0_k3, qn1_k3 * d1_k3, qn2_k3 * d2_k3, qn3_k3 * d3_k3);
+        const int k4_block_idx = (k + 4) / 32;
+        const int k4_in_block = (k + 4) % 32;
+        const long b_idx0_k4 = (long)(n_start + 0) * n_stride + k4_block_idx;
+        const long b_idx1_k4 = (long)(n_start + 1) * n_stride + k4_block_idx;
+        const long b_idx2_k4 = (long)(n_start + 2) * n_stride + k4_block_idx;
+        const long b_idx3_k4 = (long)(n_start + 3) * n_stride + k4_block_idx;
+        const half d0_k4 = vload_half(0, (__global half *)(&(B[b_idx0_k4].d)));
+        const half d1_k4 = vload_half(0, (__global half *)(&(B[b_idx1_k4].d)));
+        const half d2_k4 = vload_half(0, (__global half *)(&(B[b_idx2_k4].d)));
+        const half d3_k4 = vload_half(0, (__global half *)(&(B[b_idx3_k4].d)));
+        const uchar qp0_k4 = B[b_idx0_k4].qs[k4_in_block % 16];
+        const uchar qp1_k4 = B[b_idx1_k4].qs[k4_in_block % 16];
+        const uchar qp2_k4 = B[b_idx2_k4].qs[k4_in_block % 16];
+        const uchar qp3_k4 = B[b_idx3_k4].qs[k4_in_block % 16];
+        const half qn0_k4 = (half)((k4_in_block < 16) ? ((qp0_k4 & 0x0F) - 8) : ((qp0_k4 >> 4) - 8));
+        const half qn1_k4 = (half)((k4_in_block < 16) ? ((qp1_k4 & 0x0F) - 8) : ((qp1_k4 >> 4) - 8));
+        const half qn2_k4 = (half)((k4_in_block < 16) ? ((qp2_k4 & 0x0F) - 8) : ((qp2_k4 >> 4) - 8));
+        const half qn3_k4 = (half)((k4_in_block < 16) ? ((qp3_k4 & 0x0F) - 8) : ((qp3_k4 >> 4) - 8));
+        half4 b_vals_k4 = (half4)(qn0_k4 * d0_k4, qn1_k4 * d1_k4, qn2_k4 * d2_k4, qn3_k4 * d3_k4);
+        const int k5_block_idx = (k + 5) / 32;
+        const int k5_in_block = (k + 5) % 32;
+        const long b_idx0_k5 = (long)(n_start + 0) * n_stride + k5_block_idx;
+        const long b_idx1_k5 = (long)(n_start + 1) * n_stride + k5_block_idx;
+        const long b_idx2_k5 = (long)(n_start + 2) * n_stride + k5_block_idx;
+        const long b_idx3_k5 = (long)(n_start + 3) * n_stride + k5_block_idx;
+        const half d0_k5 = vload_half(0, (__global half *)(&(B[b_idx0_k5].d)));
+        const half d1_k5 = vload_half(0, (__global half *)(&(B[b_idx1_k5].d)));
+        const half d2_k5 = vload_half(0, (__global half *)(&(B[b_idx2_k5].d)));
+        const half d3_k5 = vload_half(0, (__global half *)(&(B[b_idx3_k5].d)));
+        const uchar qp0_k5 = B[b_idx0_k5].qs[k5_in_block % 16];
+        const uchar qp1_k5 = B[b_idx1_k5].qs[k5_in_block % 16];
+        const uchar qp2_k5 = B[b_idx2_k5].qs[k5_in_block % 16];
+        const uchar qp3_k5 = B[b_idx3_k5].qs[k5_in_block % 16];
+        const half qn0_k5 = (half)((k5_in_block < 16) ? ((qp0_k5 & 0x0F) - 8) : ((qp0_k5 >> 4) - 8));
+        const half qn1_k5 = (half)((k5_in_block < 16) ? ((qp1_k5 & 0x0F) - 8) : ((qp1_k5 >> 4) - 8));
+        const half qn2_k5 = (half)((k5_in_block < 16) ? ((qp2_k5 & 0x0F) - 8) : ((qp2_k5 >> 4) - 8));
+        const half qn3_k5 = (half)((k5_in_block < 16) ? ((qp3_k5 & 0x0F) - 8) : ((qp3_k5 >> 4) - 8));
+        half4 b_vals_k5 = (half4)(qn0_k5 * d0_k5, qn1_k5 * d1_k5, qn2_k5 * d2_k5, qn3_k5 * d3_k5);
+        const int k6_block_idx = (k + 6) / 32;
+        const int k6_in_block = (k + 6) % 32;
+        const long b_idx0_k6 = (long)(n_start + 0) * n_stride + k6_block_idx;
+        const long b_idx1_k6 = (long)(n_start + 1) * n_stride + k6_block_idx;
+        const long b_idx2_k6 = (long)(n_start + 2) * n_stride + k6_block_idx;
+        const long b_idx3_k6 = (long)(n_start + 3) * n_stride + k6_block_idx;
+        const half d0_k6 = vload_half(0, (__global half *)(&(B[b_idx0_k6].d)));
+        const half d1_k6 = vload_half(0, (__global half *)(&(B[b_idx1_k6].d)));
+        const half d2_k6 = vload_half(0, (__global half *)(&(B[b_idx2_k6].d)));
+        const half d3_k6 = vload_half(0, (__global half *)(&(B[b_idx3_k6].d)));
+        const uchar qp0_k6 = B[b_idx0_k6].qs[k6_in_block % 16];
+        const uchar qp1_k6 = B[b_idx1_k6].qs[k6_in_block % 16];
+        const uchar qp2_k6 = B[b_idx2_k6].qs[k6_in_block % 16];
+        const uchar qp3_k6 = B[b_idx3_k6].qs[k6_in_block % 16];
+        const half qn0_k6 = (half)((k6_in_block < 16) ? ((qp0_k6 & 0x0F) - 8) : ((qp0_k6 >> 4) - 8));
+        const half qn1_k6 = (half)((k6_in_block < 16) ? ((qp1_k6 & 0x0F) - 8) : ((qp1_k6 >> 4) - 8));
+        const half qn2_k6 = (half)((k6_in_block < 16) ? ((qp2_k6 & 0x0F) - 8) : ((qp2_k6 >> 4) - 8));
+        const half qn3_k6 = (half)((k6_in_block < 16) ? ((qp3_k6 & 0x0F) - 8) : ((qp3_k6 >> 4) - 8));
+        half4 b_vals_k6 = (half4)(qn0_k6 * d0_k6, qn1_k6 * d1_k6, qn2_k6 * d2_k6, qn3_k6 * d3_k6);
+        const int k7_block_idx = (k + 7) / 32;
+        const int k7_in_block = (k + 7) % 32;
+        const long b_idx0_k7 = (long)(n_start + 0) * n_stride + k7_block_idx;
+        const long b_idx1_k7 = (long)(n_start + 1) * n_stride + k7_block_idx;
+        const long b_idx2_k7 = (long)(n_start + 2) * n_stride + k7_block_idx;
+        const long b_idx3_k7 = (long)(n_start + 3) * n_stride + k7_block_idx;
+        const half d0_k7 = vload_half(0, (__global half *)(&(B[b_idx0_k7].d)));
+        const half d1_k7 = vload_half(0, (__global half *)(&(B[b_idx1_k7].d)));
+        const half d2_k7 = vload_half(0, (__global half *)(&(B[b_idx2_k7].d)));
+        const half d3_k7 = vload_half(0, (__global half *)(&(B[b_idx3_k7].d)));
+        const uchar qp0_k7 = B[b_idx0_k7].qs[k7_in_block % 16];
+        const uchar qp1_k7 = B[b_idx1_k7].qs[k7_in_block % 16];
+        const uchar qp2_k7 = B[b_idx2_k7].qs[k7_in_block % 16];
+        const uchar qp3_k7 = B[b_idx3_k7].qs[k7_in_block % 16];
+        const half qn0_k7 = (half)((k7_in_block < 16) ? ((qp0_k7 & 0x0F) - 8) : ((qp0_k7 >> 4) - 8));
+        const half qn1_k7 = (half)((k7_in_block < 16) ? ((qp1_k7 & 0x0F) - 8) : ((qp1_k7 >> 4) - 8));
+        const half qn2_k7 = (half)((k7_in_block < 16) ? ((qp2_k7 & 0x0F) - 8) : ((qp2_k7 >> 4) - 8));
+        const half qn3_k7 = (half)((k7_in_block < 16) ? ((qp3_k7 & 0x0F) - 8) : ((qp3_k7 >> 4) - 8));
+        half4 b_vals_k7 = (half4)(qn0_k7 * d0_k7, qn1_k7 * d1_k7, qn2_k7 * d2_k7, qn3_k7 * d3_k7);
+
+        acc = mad(a_vals_lo.x, b_vals_k0, acc);
+        acc = mad(a_vals_lo.y, b_vals_k1, acc);
+        acc = mad(a_vals_lo.z, b_vals_k2, acc);
+        acc = mad(a_vals_lo.w, b_vals_k3, acc);
+        acc = mad(a_vals_hi.x, b_vals_k4, acc);
+        acc = mad(a_vals_hi.y, b_vals_k5, acc);
+        acc = mad(a_vals_hi.z, b_vals_k6, acc);
+        acc = mad(a_vals_hi.w, b_vals_k7, acc);
+    }
+
+    for (int k = K_vec_size_x8 * 8; k < K; ++k) {
+        int pixel_x = k / 4;
+        int component = k % 4;
+        half4 a_pixel = read_imageh(A, sampler, (int2)(pixel_x, 0));
+        half a_val;
+        if (component == 0)
+            a_val = a_pixel.x;
+        else if (component == 1)
+            a_val = a_pixel.y;
+        else if (component == 2)
+            a_val = a_pixel.z;
+        else
+            a_val = a_pixel.w;
+        const int k_block_idx = k / 32;
+        const int k_in_block = k % 32;
+        const long b_idx0 = (long)(n_start + 0) * n_stride + k_block_idx;
+        const long b_idx1 = (long)(n_start + 1) * n_stride + k_block_idx;
+        const long b_idx2 = (long)(n_start + 2) * n_stride + k_block_idx;
+        const long b_idx3 = (long)(n_start + 3) * n_stride + k_block_idx;
+        const half d0 = vload_half(0, (__global half *)(&(B[b_idx0].d)));
+        const half d1 = vload_half(0, (__global half *)(&(B[b_idx1].d)));
+        const half d2 = vload_half(0, (__global half *)(&(B[b_idx2].d)));
+        const half d3 = vload_half(0, (__global half *)(&(B[b_idx3].d)));
+        const uchar qp0 = B[b_idx0].qs[k_in_block % 16];
+        const uchar qp1 = B[b_idx1].qs[k_in_block % 16];
+        const uchar qp2 = B[b_idx2].qs[k_in_block % 16];
+        const uchar qp3 = B[b_idx3].qs[k_in_block % 16];
+        const half qn0 = (half)((k_in_block < 16) ? ((qp0 & 0x0F) - 8) : ((qp0 >> 4) - 8));
+        const half qn1 = (half)((k_in_block < 16) ? ((qp1 & 0x0F) - 8) : ((qp1 >> 4) - 8));
+        const half qn2 = (half)((k_in_block < 16) ? ((qp2 & 0x0F) - 8) : ((qp2 >> 4) - 8));
+        const half qn3 = (half)((k_in_block < 16) ? ((qp3 & 0x0F) - 8) : ((qp3 >> 4) - 8));
+        half4 b_vals = (half4)(qn0 * d0, qn1 * d1, qn2 * d2, qn3 * d3);
+        acc = mad(a_val, b_vals, acc);
+    }
+
+    if (has_bias != 0) {
+        acc += convert_half4_rte(vload4(0, bias + n_start));
+    }
+    write_imageh(C, (int2)(gx, 0), acc);
 }
 #else
 // ---------- [兼容回退版] ----------
